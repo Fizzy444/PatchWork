@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon, status_badge, status_icon with context %}
+
+{% block title %}Overview · Patchwork{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>Overview</h1>
+    <p>Failed workflow runs and what the pipeline did with them.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-sm" href="/jobs">
+      {{ octicon("checklist", 16) }} All jobs
+    </a>
+    <a class="btn btn-sm btn-primary" href="/settings">
+      {{ octicon("plug", 16) }} Configure GitHub
+    </a>
+  </div>
+</div>
+
+{% if system.github.state != "ok" %}
+<div class="flash flash-warn" role="status">
+  {{ octicon("alert-fill", 16) }}
+  <div>
+    <strong>Patchwork is not connected to GitHub yet.</strong>
+    Failed workflow runs cannot be received or turned into pull requests until an App or token is configured.
+    <a href="/settings">Finish setup</a>.
+  </div>
+</div>
+{% endif %}
+
+<section class="stats-grid" aria-label="Remediation metrics">
+  <a class="stat-card" href="/jobs?status=all">
+    <div class="stat-label">
+      <span>Intercepted</span>
+      {{ octicon("alert-fill", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.total_intercepted|number }}</div>
+    <div class="stat-caption">Failed runs received</div>
+  </a>
+
+  <a class="stat-card" href="/jobs?status=opened">
+    <div class="stat-label">
+      <span>PR opened</span>
+      {{ octicon("git-pull-request", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.total_healed|number }}</div>
+    <div class="stat-caption">Verified fixes</div>
+  </a>
+
+  <a class="stat-card" href="/jobs">
+    <div class="stat-label">
+      <span>Success rate</span>
+      {{ octicon("check-circle-fill", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.success_rate_percentage }}%</div>
+    <div class="stat-caption">PRs opened ÷ runs received</div>
+  </a>
+
+  <a class="stat-card" href="/jobs?status=opened">
+    <div class="stat-label">
+      <span>Avg. time to heal</span>
+      {{ octicon("clock", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.average_healing_time_seconds|duration }}</div>
+    <div class="stat-caption">Per healed run</div>
+  </a>
+</section>
+
+<div class="layout-two-col">
+  <section class="Box" aria-labelledby="recent-heading">
+    <div class="Box-header">
+      <h2 id="recent-heading">Recent activity</h2>
+      <a class="Link--muted" href="/jobs">View all jobs</a>
+    </div>
+
+    {% if recent_jobs %}
+    <ul class="job-list">
+      {% for job in recent_jobs %}
+      {% set meta = status_meta(job.status) %}
+      <li>
+        <a class="job-row" href="/jobs/{{ job.id }}">
+          {{ status_icon(job.status, 16) }}
+          <div class="job-row-main">
+            <div class="job-row-title">
+              <strong>{{ job.repo_name }}</strong>
+              <span class="text-muted">Run #{{ job.run_id }}</span>
+            </div>
+            <div class="job-row-meta">
+              {% if job.failing_file %}{{ job.failing_file }}{% if job.failing_line %}:{{ job.failing_line }}{% endif %} · {% endif %}
+              {{ job.created_at|relative_time }}
+              {% if job.attempts_count %} · {{ job.attempts_count }} attempt{{ "s" if job.attempts_count != 1 }}{% endif %}
+            </div>
+          </div>
+          {{ status_badge(job.status) }}
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="Box-footer">
+      <span class="text-muted">{{ active_jobs }} job{{ "s" if active_jobs != 1 }} currently in progress</span>
+    </div>
+    {% else %}
+    <div class="blankslate">
+      {{ octicon("inbox", 24) }}
+      <h2>No remediation jobs yet</h2>
+      <p>Failed workflow runs appear here once GitHub delivers a webhook.</p>
+      <a class="btn btn-sm" href="/settings">Open integration setup</a>
+    </div>
+    {% endif %}
+  </section>
+
+  <aside class="overview-side">
+    <section class="Box" aria-labelledby="system-heading">
+      <div class="Box-header">
+        <h2 id="system-heading">System status</h2>
+        <a class="Link--muted" href="/settings">Details</a>
+      </div>
+      <ul class="status-list">
+        {% for key, item in system.items() %}
+        <li class="status-listItem">
+          <span class="status-dot status-dot--{{ item.state }}"></span>
+          <div class="status-listMain">
+            <div class="status-listLabel">{{ item.label }}</div>
+            <div class="status-listDetail">{{ item.detail }}</div>
+          </div>
+          <span class="status-listValue">{{ item.value }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="Box" aria-labelledby="guardrails-heading">
+      <div class="Box-header">
+        <h2 id="guardrails-heading">Guardrails</h2>
+        <a class="Link--muted" href="/guardrails">View</a>
+      </div>
+      <ul class="metric-list">
+        <li>
+          {{ octicon("shield-x", 16, "text-danger") }}
+          <span>Guardrail blocked</span>
+          <strong>{{ metrics.guardrails_prevented|number }}</strong>
+        </li>
+        <li>
+          {{ octicon("sync", 16, "text-attention") }}
+          <span>Flaky reruns</span>
+          <strong>{{ metrics.flaky_runs_rerun|number }}</strong>
+        </li>
+        <li>
+          {{ octicon("code", 16, "text-muted") }}
+          <span>Tokens used</span>
+          <strong>{{ metrics.total_tokens_used|number }}</strong>
+        </li>
+      </ul>
+    </section>
+  </aside>
+</div>
+{% endblock %}

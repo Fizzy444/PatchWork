@@ -1,0 +1,252 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon, status_badge with context %}
+
+{% block title %}{{ job.repo_name }} Run #{{ job.run_id }} · Patchwork{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+  <a href="/jobs">Jobs</a>
+  {{ octicon("chevron-right", 12) }}
+  <span>{{ job.repo_name }}</span>
+  {{ octicon("chevron-right", 12) }}
+  <span>Run #{{ job.run_id }}</span>
+</nav>
+
+<div class="job-detail-head">
+  <div class="job-detail-title">
+    <span class="StateIcon StateIcon--{{ meta.state }}">{{ octicon(meta.icon, 20) }}</span>
+    <div>
+      <h1>{{ job.repo_name }} <span class="text-muted">Run #{{ job.run_id }}</span></h1>
+      <div class="meta-line">
+        {{ status_badge(job.status) }}
+        <span>{{ meta.description }}</span>
+        <span class="meta-separator">·</span>
+        <span>{{ job.created_at|relative_time }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="page-actions">
+    {% if job.pull_request_url %}
+    <a class="btn btn-sm btn-primary" href="{{ job.pull_request_url }}" target="_blank" rel="noopener">
+      {{ octicon("git-pull-request", 16) }}
+      View pull request{% if job.pull_request_number %} #{{ job.pull_request_number }}{% endif %}
+      {{ octicon("link-external", 12) }}
+    </a>
+    {% endif %}
+    <a class="btn btn-sm" href="/jobs">Back to jobs</a>
+  </div>
+</div>
+
+<div class="layout-two-col detail-layout">
+  <div class="detail-main">
+    <section class="Box" aria-labelledby="summary-heading">
+      <div class="Box-header">
+        <h2 id="summary-heading">Diagnosis</h2>
+      </div>
+      <div class="Box-body summary-body">
+        {% if job.root_cause %}
+        <h3>Root cause</h3>
+        <p>{{ job.root_cause }}</p>
+        {% endif %}
+
+        {% if job.error_summary %}
+        <div class="note{% if job.guardrail_violation %} note-danger{% endif %}">
+          {{ octicon("alert-fill", 16) }}
+          <div>
+            <strong>{{ "Guardrail violation" if job.guardrail_violation else "Pipeline result" }}</strong>
+            <p>{{ job.error_summary }}</p>
+            {% if job.guardrail_violation %}
+            <code>{{ job.guardrail_violation }}</code>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if not job.root_cause and not job.error_summary %}
+        <p class="text-muted">No diagnosis has been recorded for this run yet.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="Box" aria-labelledby="patch-heading">
+      <div class="Box-header">
+        <h2 id="patch-heading">
+          Patch
+          {% if job.failing_file %}<span class="text-muted text-normal">· {{ job.failing_file }}</span>{% endif %}
+        </h2>
+        {% if job.diff_patch %}
+        {% set diff = job.diff_patch|parse_diff %}
+        <span class="diff-summary">
+          <span class="diff-add">+{{ diff.additions }}</span>
+          <span class="diff-del">−{{ diff.deletions }}</span>
+        </span>
+        {% endif %}
+      </div>
+
+      {% if job.diff_patch %}
+      {% set diff = job.diff_patch|parse_diff %}
+      <div class="diff" role="table" aria-label="Unified diff">
+        {% for line in diff.lines %}
+        <div class="diff-row diff-row--{{ line.kind }}" role="row">
+          <span class="diff-num" aria-hidden="true">{{ line.old if line.old is not none else "" }}</span>
+          <span class="diff-num" aria-hidden="true">{{ line.new if line.new is not none else "" }}</span>
+          <span class="diff-code">{{ line.text }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="blankslate blankslate--compact">
+        {{ octicon("code", 20) }}
+        <h2>No patch recorded</h2>
+        <p>The pipeline has not produced a diff for this run.</p>
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="Box" aria-labelledby="attempts-heading">
+      <div class="Box-header">
+        <h2 id="attempts-heading">Sandbox attempts</h2>
+        <span class="text-muted text-small">{{ job.attempts|length }} recorded</span>
+      </div>
+
+      {% if job.attempts %}
+      <div class="Box-body attempts-body">
+        {% for attempt in job.attempts %}
+        <details class="attempt"{% if loop.last %} open{% endif %}>
+          <summary>
+            <span class="State State--{{ 'open' if attempt.passed else 'closed' }}">
+              {{ octicon("check-circle-fill" if attempt.passed else "x-circle-fill", 12) }}
+              <span>{{ "Passed" if attempt.passed else "Failed" }}</span>
+            </span>
+            <strong>Attempt {{ attempt.attempt_number }}</strong>
+            <span class="text-muted text-small">{{ attempt.created_at|relative_time }}</span>
+            {{ octicon("chevron-right", 14, "attempt-chevron") }}
+          </summary>
+          <div class="attempt-body">
+            {% if attempt.patch_diff %}
+            <h4>Proposed patch</h4>
+            <pre class="code-block">{{ attempt.patch_diff }}</pre>
+            {% endif %}
+
+            <h4>Test output</h4>
+            {% if attempt.test_output %}
+            <pre class="code-block">{{ attempt.test_output[:6000] }}{% if attempt.test_output|length > 6000 %}
+
+… output truncated ({{ attempt.test_output|length|number }} characters total){% endif %}</pre>
+            {% else %}
+            <p class="text-muted text-small">No test output was recorded for this attempt.</p>
+            {% endif %}
+          </div>
+        </details>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="blankslate blankslate--compact">
+        {{ octicon("server", 20) }}
+        <h2>No sandbox attempts</h2>
+        <p>Verification starts after the model produces an initial patch.</p>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+
+  <aside class="detail-side">
+    <section class="Box" aria-labelledby="details-heading">
+      <div class="Box-header">
+        <h2 id="details-heading">Details</h2>
+      </div>
+      <div class="Box-body">
+        <ul class="detail-list">
+          <li>
+            <span>Repository</span>
+            <strong>{{ job.repo_name }}</strong>
+          </li>
+          <li>
+            <span>Branch</span>
+            <strong class="branch-name">{{ octicon("git-branch", 14) }} {{ job.branch_name }}</strong>
+          </li>
+          <li>
+            <span>Commit</span>
+            <a class="mono" href="https://github.com/{{ job.repo_name }}/commit/{{ job.commit_sha }}" target="_blank" rel="noopener">
+              {{ job.commit_sha|short_sha }}
+            </a>
+          </li>
+          <li>
+            <span>Workflow</span>
+            <strong>{{ job.workflow_name }}</strong>
+          </li>
+          <li>
+            <span>Run</span>
+            <a class="mono" href="https://github.com/{{ job.repo_name }}/actions/runs/{{ job.run_id }}" target="_blank" rel="noopener">
+              #{{ job.run_id }}
+            </a>
+          </li>
+          <li>
+            <span>Failing target</span>
+            <strong class="mono">
+              {% if job.failing_file %}{{ job.failing_file }}{% if job.failing_line %}:{{ job.failing_line }}{% endif %}{% else %}—{% endif %}
+            </strong>
+          </li>
+          <li>
+            <span>Attempts</span>
+            <strong>{{ job.attempts_count }} / {{ settings.MAX_RETRY_ATTEMPTS }}</strong>
+          </li>
+          <li>
+            <span>Duration</span>
+            <strong>{{ job.duration_seconds|duration }}</strong>
+          </li>
+          <li>
+            <span>Tokens</span>
+            <strong>{{ job.tokens_used|number }}</strong>
+          </li>
+          <li>
+            <span>Received</span>
+            <strong>{{ job.created_at|relative_time }}</strong>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="Box" aria-labelledby="checks-heading">
+      <div class="Box-header">
+        <h2 id="checks-heading">Guardrail checks</h2>
+      </div>
+      <ul class="check-list">
+        {% for check in guardrail_checks %}
+        <li class="check-item">
+          {% if check.state == "ok" %}
+          {{ octicon("check-circle-fill", 16, "text-success") }}
+          {% elif check.state == "blocked" %}
+          {{ octicon("x-circle-fill", 16, "text-danger") }}
+          {% else %}
+          {{ octicon("dot-fill", 16, "text-muted") }}
+          {% endif %}
+          <div>
+            <strong>{{ check.name }}</strong>
+            <span>{{ check.detail }}</span>
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    {% if job.pull_request_url %}
+    <section class="Box" aria-labelledby="pr-heading">
+      <div class="Box-header">
+        <h2 id="pr-heading">Pull request</h2>
+      </div>
+      <div class="Box-body">
+        <a class="btn btn-sm btn-block" href="{{ job.pull_request_url }}" target="_blank" rel="noopener">
+          {{ octicon("git-pull-request", 16) }}
+          {% if job.pull_request_number %}#{{ job.pull_request_number }}{% else %}Open PR{% endif %}
+          {{ octicon("link-external", 12) }}
+        </a>
+        <p class="text-muted text-small mt-2">
+          {{ "Merged" if job.pr_merged else "Opened by the remediation pipeline." }}
+        </p>
+      </div>
+    </section>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

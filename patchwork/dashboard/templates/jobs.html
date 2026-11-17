@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon, status_badge, status_icon with context %}
+
+{% block title %}Jobs · Patchwork{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>Remediation jobs</h1>
+    <p>Every failed workflow Patchwork has received, and what the pipeline did with it.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-sm" href="{{ request.url }}">
+      {{ octicon("sync", 16) }} Refresh
+    </a>
+  </div>
+</div>
+
+<nav class="UnderlineNav" aria-label="Job status filters">
+  {% for tab in tabs %}
+  <a class="UnderlineNav-item{% if tab.key == selected_status.key %} selected{% endif %}" href="{{ tab.url }}">
+    {{ tab.label }}
+    <span class="Counter">{{ tab.count }}</span>
+  </a>
+  {% endfor %}
+</nav>
+
+<form class="filter-bar" method="get" action="/jobs" role="search">
+  <input type="hidden" name="status" value="{{ selected_status.key }}">
+
+  <div class="search-input">
+    {{ octicon("search", 16) }}
+    <input class="form-control" type="search" name="q" value="{{ search_query or '' }}"
+           placeholder="Search repository, branch, or file" aria-label="Search jobs">
+  </div>
+
+  <select class="form-select" name="repo" aria-label="Filter by repository">
+    <option value="">All repositories</option>
+    {% for repo in repositories %}
+    <option value="{{ repo.name }}"{% if repo.name == selected_repo %} selected{% endif %}>
+      {{ repo.name }} ({{ repo.count }})
+    </option>
+    {% endfor %}
+  </select>
+
+  <button class="btn btn-sm" type="submit">Apply filters</button>
+  {% if selected_repo or search_query %}
+  <a class="btn btn-sm btn-invisible" href="{{ clear_url }}">Clear</a>
+  {% endif %}
+</form>
+
+<section class="Box" aria-labelledby="jobs-heading">
+  <div class="Box-header">
+    <h2 id="jobs-heading">
+      {{ selected_status.label }}
+      <span class="Counter">{{ total }}</span>
+    </h2>
+    <span class="text-muted text-small">
+      {% if total %}Showing {{ start_index }}–{{ end_index }} of {{ total }}{% else %}No matching jobs{% endif %}
+    </span>
+  </div>
+
+  {% if jobs %}
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th scope="col">Status</th>
+          <th scope="col">Repository</th>
+          <th scope="col">Branch</th>
+          <th scope="col">Run</th>
+          <th scope="col">Failure</th>
+          <th scope="col">Attempts</th>
+          <th scope="col">Duration</th>
+          <th scope="col">Received</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for job in jobs %}
+        <tr>
+          <td>{{ status_badge(job.status) }}</td>
+          <td>
+            <a class="table-primaryLink" href="/jobs/{{ job.id }}">{{ job.repo_name }}</a>
+            <div class="table-secondary">{{ job.workflow_name }}</div>
+          </td>
+          <td>
+            <span class="branch-name">{{ octicon("git-branch", 14) }} {{ job.branch_name }}</span>
+          </td>
+          <td>
+            <a class="table-runLink" href="https://github.com/{{ job.repo_name }}/actions/runs/{{ job.run_id }}"
+               target="_blank" rel="noopener" title="Open workflow run on GitHub">
+              #{{ job.run_id }} {{ octicon("link-external", 12) }}
+            </a>
+            <div class="table-secondary">{{ job.commit_sha|short_sha }}</div>
+          </td>
+          <td>
+            {% if job.failing_file %}
+            <span class="table-file">{{ job.failing_file }}{% if job.failing_line %}:{{ job.failing_line }}{% endif %}</span>
+            {% else %}
+            <span class="text-muted">{{ job.error_summary or "Not extracted yet" }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="text-muted">{{ job.attempts_count }}/{{ settings.MAX_RETRY_ATTEMPTS }}</span>
+          </td>
+          <td>
+            <span class="text-muted">{{ job.duration_seconds|duration }}</span>
+          </td>
+          <td>
+            <span class="text-muted" title="{{ job.created_at }}">{{ job.created_at|relative_time }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="Box-footer pagination">
+    <span class="text-muted text-small">
+      Page {{ page }} of {{ total_pages }}
+    </span>
+    <div class="pagination-buttons">
+      {% if prev_url %}
+      <a class="btn btn-sm" href="{{ prev_url }}">Previous</a>
+      {% else %}
+      <span class="btn btn-sm disabled" aria-disabled="true">Previous</span>
+      {% endif %}
+      {% if next_url %}
+      <a class="btn btn-sm" href="{{ next_url }}">Next</a>
+      {% else %}
+      <span class="btn btn-sm disabled" aria-disabled="true">Next</span>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div class="blankslate">
+    {{ octicon("inbox", 24) }}
+    {% if selected_repo or search_query %}
+    <h2>No jobs match these filters</h2>
+    <p>Try a different repository, status, or search term.</p>
+    <a class="btn btn-sm" href="{{ clear_url }}">Clear filters</a>
+    {% else %}
+    <h2>No remediation jobs recorded</h2>
+    <p>Patchwork only lists runs that were actually delivered by GitHub. Configure the webhook to start ingesting failed workflows.</p>
+    <a class="btn btn-sm btn-primary" href="/settings">Configure GitHub integration</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

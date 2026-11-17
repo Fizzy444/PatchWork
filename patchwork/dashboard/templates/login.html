@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon with context %}
+
+{% block title %}Sign in · Patchwork{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <form class="Box auth-card" method="post" action="/login">
+    <input type="hidden" name="next" value="{{ next }}">
+    <div class="Box-header">
+      <h1>Sign in</h1>
+    </div>
+    <div class="Box-body">
+      {% if error %}
+      <div class="flash flash-error" role="alert">
+        {{ octicon("alert-fill", 16) }}<div>{{ error }}</div>
+      </div>
+      {% endif %}
+
+      <div class="form-group">
+        <label class="form-label" for="login-username">Username or email</label>
+        <input class="form-control" type="text" id="login-username" name="username"
+               value="{{ username|default('', true) }}" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="login-password">Password</label>
+        <input class="form-control" type="password" id="login-password" name="password"
+               autocomplete="current-password" required>
+      </div>
+    </div>
+    <div class="Box-footer form-actions">
+      <button class="btn btn-primary" type="submit">{{ octicon("lock", 16) }} Sign in</button>
+    </div>
+  </form>
+  <p class="auth-alt">No account yet? <a href="/register">Create one</a>.</p>
+</div>
+{% endblock %}

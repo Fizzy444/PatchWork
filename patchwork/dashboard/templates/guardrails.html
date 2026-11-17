@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon, status_badge with context %}
+
+{% block title %}Guardrails · Patchwork{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>Guardrails</h1>
+    <p>Checks that run before a patch can open a pull request.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-sm" href="/settings">
+      {{ octicon("plug", 16) }} Runtime settings
+    </a>
+  </div>
+</div>
+
+<section class="stats-grid stats-grid--two" aria-label="Guardrail outcomes">
+  <div class="stat-card stat-card--static">
+    <div class="stat-label">
+      <span>Patches blocked</span>
+      {{ octicon("shield-x", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.guardrails_prevented|number }}</div>
+    <div class="stat-caption">Patches rejected</div>
+  </div>
+  <div class="stat-card stat-card--static">
+    <div class="stat-label">
+      <span>Flaky reruns</span>
+      {{ octicon("sync", 16, "stat-icon") }}
+    </div>
+    <div class="stat-value">{{ metrics.flaky_runs_rerun|number }}</div>
+    <div class="stat-caption">Workflows rerun instead of patched</div>
+  </div>
+</section>
+
+<div class="guardrail-grid">
+  <section class="Box guardrail-card">
+    <div class="Box-header">
+      <h2>{{ octicon("shield-check", 16) }} Never touch tests</h2>
+      <span class="State State--open">Enforced</span>
+    </div>
+    <div class="Box-body">
+      <p class="guardrail-description">
+        Rejects patches that touch tests, test files, or CI workflows.
+      </p>
+      <h3 class="config-heading">Protected paths</h3>
+      <div class="label-list">
+        {% for path in protected_paths %}
+        <code class="label-code">{{ path }}</code>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="Box-footer guardrail-footer">
+      {{ octicon("code", 14) }}
+      <span>Violation code <code>NEVER_TOUCH_TESTS</code></span>
+    </div>
+  </section>
+
+  <section class="Box guardrail-card">
+    <div class="Box-header">
+      <h2>{{ octicon("git-branch", 16) }} Infinite loop guard</h2>
+      <span class="State State--open">Enforced</span>
+    </div>
+    <div class="Box-body">
+      <p class="guardrail-description">
+        Ignores failures on branches created by Patchwork and events sent by bots.
+      </p>
+      <h3 class="config-heading">Ignored branch prefix</h3>
+      <code class="label-code">{{ loop_prefix }}*</code>
+      <p class="text-muted text-small mt-2">
+        Also ignores <code>patchwork-fix/</code>, <code>autofix/</code>, and senders whose login contains <code>[bot]</code>.
+      </p>
+    </div>
+    <div class="Box-footer guardrail-footer">
+      {{ octicon("code", 14) }}
+      <span>Violation code <code>INFINITE_LOOP_PREVENTION</code></span>
+    </div>
+  </section>
+
+  <section class="Box guardrail-card">
+    <div class="Box-header">
+      <h2>{{ octicon("sync", 16) }} Flaky test detection</h2>
+      <span class="State State--open">Enforced</span>
+    </div>
+    <div class="Box-body">
+      <p class="guardrail-description">
+        Reruns workflows that failed for transient network or infrastructure reasons.
+      </p>
+      <h3 class="config-heading">Tracked signatures</h3>
+      <div class="label-list">
+        {% for pattern in flaky_patterns[:8] %}
+        <code class="label-code">{{ pattern }}</code>
+        {% endfor %}
+        {% if flaky_patterns|length > 8 %}
+        <span class="text-muted text-small">+{{ flaky_patterns|length - 8 }} more</span>
+        {% endif %}
+      </div>
+    </div>
+    <div class="Box-footer guardrail-footer">
+      {{ octicon("code", 14) }}
+      <span>Outcome <code>FLAKY_RERUN</code></span>
+    </div>
+  </section>
+
+  <section class="Box guardrail-card">
+    <div class="Box-header">
+      <h2>{{ octicon("code", 16) }} Diff size limiter</h2>
+      <span class="State State--open">Enforced</span>
+    </div>
+    <div class="Box-body">
+      <p class="guardrail-description">
+        Caps how many lines a patch may change.
+      </p>
+      <ul class="detail-list detail-list--compact">
+        <li><span>Maximum altered lines</span><strong>{{ max_diff_lines }}</strong></li>
+        <li><span>Self-correction attempts</span><strong>{{ max_retry_attempts }}</strong></li>
+      </ul>
+    </div>
+    <div class="Box-footer guardrail-footer">
+      {{ octicon("code", 14) }}
+      <span>Violation code <code>DIFF_SIZE_EXCEEDED</code></span>
+    </div>
+  </section>
+</div>
+
+<section class="Box" aria-labelledby="blocked-heading">
+  <div class="Box-header">
+    <h2 id="blocked-heading">
+      Recent guardrail blocks
+      <span class="Counter">{{ blocked_total }}</span>
+    </h2>
+    <a class="Link--muted" href="/jobs?status=guardrails">View all</a>
+  </div>
+
+  {% if blocked_jobs %}
+  <ul class="job-list">
+    {% for job in blocked_jobs %}
+    <li>
+      <a class="job-row" href="/jobs/{{ job.id }}">
+        <span class="StatusIcon StatusIcon--blocked">{{ octicon("shield-x", 16) }}</span>
+        <div class="job-row-main">
+          <div class="job-row-title">
+            <strong>{{ job.repo_name }}</strong>
+            <span class="text-muted">Run #{{ job.run_id }}</span>
+          </div>
+          <div class="job-row-meta">
+            {{ job.guardrail_violation or job.error_summary or "Rejected by guardrail" }}
+            · {{ job.created_at|relative_time }}
+          </div>
+        </div>
+        {{ status_badge(job.status) }}
+      </a>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="blankslate blankslate--compact">
+    {{ octicon("shield-check", 20) }}
+    <h2>No guardrail blocks recorded</h2>
+    <p>When a patch is rejected, the run and the exact violation code appear here.</p>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

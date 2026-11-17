@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon with context %}
+
+{% block title %}Settings · Patchwork{% endblock %}
+
+{% block content %}
+<div class="page-heading">
+  <div>
+    <h1>Settings</h1>
+    <p>Saved to the database and applied immediately. Values here override <code>.env</code>.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn btn-sm" href="/docs">
+      {{ octicon("book", 16) }} API docs {{ octicon("link-external", 12) }}
+    </a>
+  </div>
+</div>
+
+{% if saved %}
+<div class="flash flash-success" role="status">
+  {{ octicon("check-circle-fill", 16) }}
+  <div><strong>Settings saved.</strong> The running process is using the new values.</div>
+</div>
+{% endif %}
+
+{% if reveal_notice %}
+<div class="flash flash-success" role="status">
+  {{ octicon("lock", 16) }}
+  <div>Stored keys and tokens are visible for five minutes.</div>
+</div>
+{% endif %}
+
+{% if hidden_notice %}
+<div class="flash" role="status">
+  {{ octicon("shield-check", 16) }}
+  <div>Stored keys and tokens are hidden again.</div>
+</div>
+{% endif %}
+
+{% if errors.get("_form") %}
+<div class="flash flash-error" role="alert">
+  {{ octicon("alert-fill", 16) }}
+  <div>{{ errors["_form"] }}</div>
+</div>
+{% endif %}
+
+<section class="Box reveal-box" aria-labelledby="reveal-heading">
+  <div class="Box-header">
+    <h2 id="reveal-heading">{{ octicon("lock", 16) }} Stored secrets</h2>
+  </div>
+  <div class="Box-body">
+    {% if revealed %}
+    <p class="settings-description">
+      Keys and tokens are shown below until the reveal window expires. Hide them when you are done.
+    </p>
+    {% if reveal_error %}
+    <div class="flash flash-error" role="alert">{{ octicon("alert-fill", 16) }}<div>{{ reveal_error }}</div></div>
+    {% endif %}
+    <form method="post" action="/settings/hide">
+      <button class="btn btn-sm" type="submit">{{ octicon("shield-check", 16) }} Hide secrets</button>
+    </form>
+    {% else %}
+    <p class="settings-description">
+      Stored keys and tokens are masked. Confirm your account password to view them.
+    </p>
+    {% if reveal_error %}
+    <div class="flash flash-error" role="alert">{{ octicon("alert-fill", 16) }}<div>{{ reveal_error }}</div></div>
+    {% endif %}
+    <form class="reveal-form" method="post" action="/settings/reveal">
+      <div class="form-group">
+        <label class="form-label" for="reveal-password">Account password</label>
+        <input class="form-control" type="password" id="reveal-password" name="password"
+               autocomplete="current-password" placeholder="Your password">
+      </div>
+      <button class="btn btn-primary btn-sm" type="submit">{{ octicon("lock", 16) }} Reveal secrets</button>
+    </form>
+    {% endif %}
+  </div>
+</section>
+
+<div class="layout-two-col detail-layout">
+  <div class="detail-main">
+    {% for group in groups %}
+    <section class="Box" aria-labelledby="settings-{{ group.key }}">
+      <div class="Box-header">
+        <h2 id="settings-{{ group.key }}">{{ group.title }}</h2>
+      </div>
+      <form method="post" action="/settings">
+        <input type="hidden" name="group" value="{{ group.key }}">
+        <div class="Box-body">
+          <p class="settings-description">{{ group.description }}</p>
+
+          {% for field in group.fields %}
+          <div class="form-group{% if field.error %} has-error{% endif %}">
+            {% if field.kind == "toggle" %}
+            <label class="checkbox" for="field-{{ field.key }}">
+              <input type="checkbox" id="field-{{ field.key }}" name="{{ field.key }}"
+                     {% if field.value %}checked{% endif %}>
+              <span>{{ field.label }}</span>
+            </label>
+            {% else %}
+            <label class="form-label" for="field-{{ field.key }}">{{ field.label }}</label>
+            {% endif %}
+
+            {% if field.kind == "select" %}
+            <select class="form-select" id="field-{{ field.key }}" name="{{ field.key }}">
+              {% for option_value, option_label in field.options %}
+              <option value="{{ option_value }}"{% if field.value == option_value %} selected{% endif %}>
+                {{ option_label }}
+              </option>
+              {% endfor %}
+            </select>
+
+            {% elif field.kind == "secret" %}
+              {% if field.multiline %}
+              <textarea class="form-control mono" id="field-{{ field.key }}" name="{{ field.key }}" rows="5"
+                        placeholder="{{ field.hint if field.configured else 'Not set' }}"
+                        autocomplete="off" spellcheck="false">{{ field.value }}</textarea>
+              {% else %}
+              <input class="form-control mono" type="{{ 'text' if revealed else 'password' }}"
+                     id="field-{{ field.key }}" name="{{ field.key }}"
+                     value="{{ field.value }}"
+                     placeholder="{{ field.hint if field.configured else 'Not set' }}"
+                     autocomplete="{{ 'off' if revealed else 'new-password' }}">
+              {% endif %}
+              {% if field.configured %}
+              <label class="checkbox checkbox--small" for="clear-{{ field.key }}">
+                <input type="checkbox" id="clear-{{ field.key }}" name="clear_{{ field.key }}">
+                <span>Remove stored value</span>
+              </label>
+              {% endif %}
+
+            {% elif field.kind == "list" %}
+            <textarea class="form-control mono" id="field-{{ field.key }}" name="{{ field.key }}" rows="4"
+                      placeholder="{{ field.placeholder }}" spellcheck="false">{{ field.value }}</textarea>
+
+            {% elif field.kind in ("number", "float") %}
+            <input class="form-control" type="number" id="field-{{ field.key }}" name="{{ field.key }}"
+                   value="{{ field.value }}" step="{{ field.step }}"
+                   {% if field.minimum is not none %}min="{{ field.minimum }}"{% endif %}
+                   {% if field.maximum is not none %}max="{{ field.maximum }}"{% endif %}>
+
+            {% else %}
+            <input class="form-control" type="text" id="field-{{ field.key }}" name="{{ field.key }}"
+                   value="{{ field.value }}" placeholder="{{ field.placeholder }}">
+            {% endif %}
+
+            {% if field.help %}<p class="form-hint">{{ field.help }}</p>{% endif %}
+            {% if field.error %}<p class="form-error">{{ field.error }}</p>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        <div class="Box-footer form-actions">
+          <button class="btn btn-primary btn-sm" type="submit">Save {{ group.title }}</button>
+        </div>
+      </form>
+    </section>
+    {% endfor %}
+  </div>
+
+  <aside class="detail-side">
+    <section class="Box" aria-labelledby="status-heading">
+      <div class="Box-header">
+        <h2 id="status-heading">Status</h2>
+        <a class="Link--muted" href="/overview">Overview</a>
+      </div>
+      <ul class="status-list">
+        {% for key, item in system.items() %}
+        <li class="status-listItem">
+          <span class="status-dot status-dot--{{ item.state }}"></span>
+          <div class="status-listMain">
+            <div class="status-listLabel">{{ item.label }}</div>
+            <div class="status-listDetail">{{ item.detail }}</div>
+          </div>
+          <span class="status-listValue">{{ item.value }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="Box" aria-labelledby="smee-heading">
+      <div class="Box-header">
+        <h2 id="smee-heading">{{ octicon("plug", 16) }} Smee Auto-Runner</h2>
+        {% if smee_status.active and smee_status.connected %}
+        <span class="State State--open" style="font-size: 11px;">Active</span>
+        {% elif smee_status.active %}
+        <span class="State State--reopened" style="font-size: 11px;">Connecting</span>
+        {% else %}
+        <span class="State State--draft" style="font-size: 11px;">Idle</span>
+        {% endif %}
+      </div>
+      <div class="Box-body">
+        {% if smee_status.is_smee %}
+          {% if smee_status.active and smee_status.connected %}
+          <div class="flash flash-success mb-2 p-2" style="font-size: 12px;">
+            {{ octicon("check-circle-fill", 14) }}
+            <div>Connected to Smee. Forwarding events directly to <code>/api/v1/webhook</code>. No terminal needed!</div>
+          </div>
+          {% elif smee_status.active %}
+          <div class="flash flash-warn mb-2 p-2" style="font-size: 12px;">
+            {{ octicon("alert-fill", 14) }}
+            <div>Connecting to Smee stream...</div>
+          </div>
+          {% endif %}
+          <ul class="detail-list detail-list--compact">
+            <li><span>Channel</span><strong class="text-truncate" style="max-width: 140px;" title="{{ smee_status.url }}"><code>{{ smee_status.url }}</code></strong></li>
+            <li><span>Forwarded</span><strong>{{ smee_status.events_count }} events</strong></li>
+            <li><span>Last event</span><strong class="text-small">{{ smee_status.last_event_time or 'None yet' }}</strong></li>
+          </ul>
+        {% else %}
+          <p class="text-muted text-small mb-2">
+            Enter your <code>smee.io</code> channel in <strong>Webhook payload URL</strong> below. Patchwork will automatically start the Smee listener in the background without needing a separate terminal.
+          </p>
+          <a class="btn btn-sm" href="https://smee.io" target="_blank" rel="noopener">
+            {{ octicon("link-external", 14) }} Create a Smee channel
+          </a>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="Box" aria-labelledby="webhook-heading">
+      <div class="Box-header">
+        <h2 id="webhook-heading">Webhook</h2>
+        <span class="text-muted text-small">workflow_run</span>
+      </div>
+      <div class="Box-body">
+        <p class="text-muted text-small">
+          Paste this URL into GitHub, then save the matching secret in the Webhook section.
+        </p>
+        <div class="copy-field">
+          <code>{{ webhook_url }}</code>
+          <button class="btn btn-sm" type="button" data-copy="{{ webhook_url }}">
+            {{ octicon("copy", 14) }} Copy
+          </button>
+        </div>
+        {% if not webhook_configured %}
+        <p class="form-hint">
+          Derived from this request. Save a public payload URL to keep it stable.
+        </p>
+        {% endif %}
+        <ul class="detail-list detail-list--compact mt-2">
+          <li><span>Content type</span><strong><code>application/json</code></strong></li>
+          <li><span>Event</span><strong>Workflow runs</strong></li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="Box">
+      <div class="Box-body">
+        <p class="text-muted text-small">
+          Sign in is required for this dashboard. Webhook delivery stays open so GitHub can reach it.
+        </p>
+      </div>
+    </section>
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon with context %}
+
+{% block title %}Create account · Patchwork{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+  <div class="Box auth-card">
+    <div class="Box-header">
+      <h1>Create account</h1>
+    </div>
+    {% if not closed %}
+    <form method="post" action="/register">
+    {% endif %}
+      <div class="Box-body">
+        {% if error %}
+        <div class="flash flash-error" role="alert">
+          {{ octicon("alert-fill", 16) }}<div>{{ error }}</div>
+        </div>
+        {% endif %}
+
+        {% if closed %}
+        <p class="settings-description">
+          The first account is the administrator account. Additional accounts are disabled by default.
+        </p>
+        {% else %}
+        <div class="form-group">
+          <label class="form-label" for="register-username">Username</label>
+          <input class="form-control" type="text" id="register-username" name="username"
+                 value="{{ values.username|default('', true) }}" autocomplete="username" required>
+          <p class="form-hint">3-32 letters, numbers, dots, dashes, or underscores.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-email">Email <span class="text-muted">optional</span></label>
+          <input class="form-control" type="email" id="register-email" name="email"
+                 value="{{ values.email|default('', true) }}" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-password">Password</label>
+          <input class="form-control" type="password" id="register-password" name="password"
+                 autocomplete="new-password" required>
+          <p class="form-hint">At least 8 characters.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="register-confirm">Confirm password</label>
+          <input class="form-control" type="password" id="register-confirm" name="confirm"
+                 autocomplete="new-password" required>
+        </div>
+        {% endif %}
+      </div>
+      {% if not closed %}
+      <div class="Box-footer form-actions">
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </div>
+      </form>
+      {% endif %}
+  </div>
+  <p class="auth-alt">Already have an account? <a href="/login">Sign in</a>.</p>
+</div>
+{% endblock %}

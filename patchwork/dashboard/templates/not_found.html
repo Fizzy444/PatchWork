@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% from "_macros.html" import octicon with context %}
+
+{% block title %}Job not found · Patchwork{% endblock %}
+
+{% block content %}
+<div class="blankslate blankslate--page">
+  {{ octicon("search", 24) }}
+  <h2>Job not found</h2>
+  <p>The remediation job you are looking for does not exist, or it was removed from the database.</p>
+  <a class="btn btn-sm" href="/jobs">Back to jobs</a>
+</div>
+{% endblock %}
