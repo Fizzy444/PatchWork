@@ -280,7 +280,7 @@ async def test_favicon_and_icon_fallbacks_are_served(anonymous_client):
         assert response.status_code == 200
 
     page = await anonymous_client.get("/")
-    assert 'href="/static/favicon.ico?v=2"' in page.text
+    assert 'href="/static/favicon.ico?v=4"' in page.text
 
 
 @pytest.mark.asyncio
