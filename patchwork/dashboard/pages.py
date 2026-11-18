@@ -18,6 +18,7 @@ from patchwork.auth import SESSION_COOKIE, set_reveal, verify_password
 from patchwork.config import settings
 from patchwork.dashboard.templating import render_page, status_meta
 from patchwork.database import (
+    cancel_job,
     get_job,
     get_metrics_summary,
     get_repositories,
@@ -266,6 +267,21 @@ def _pipeline_stages(job) -> List[Dict[str, object]]:
             statuses["extracting"] = "completed"
             statuses["diagnosing"] = "completed"
             statuses["verifying"] = "failed"
+    elif status == JobStatus.CANCELLED.value:
+        if not job.failing_file:
+            statuses["queued"] = "failed"
+        elif not job.root_cause:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "failed"
+        elif job.attempts_count == 0:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "completed"
+            statuses["diagnosing"] = "failed"
+        else:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "completed"
+            statuses["diagnosing"] = "completed"
+            statuses["verifying"] = "failed"
 
     labels = {
         "queued": ("Ingestion", "Webhook & loop guard"),
@@ -309,6 +325,13 @@ async def job_detail_page(request: Request, job_id: str):
 async def rerun_job_page(request: Request, job_id: str):
     """Trigger a re-run of a remediation job from the HTML form."""
     await rerun_job(job_id)
+    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
+
+
+@router.post("/jobs/{job_id}/stop", response_class=RedirectResponse)
+async def stop_job_page(request: Request, job_id: str):
+    """Trigger cancellation of a running remediation job from the HTML form."""
+    await cancel_job(job_id)
     return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
 

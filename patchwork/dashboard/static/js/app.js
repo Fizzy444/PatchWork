@@ -12,6 +12,7 @@
   var CHECK_PATH = "M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z";
   var X_PATH = "M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z";
   var SYNC_PATH = "M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.38-1.38A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.38 1.38A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z";
+  var STOP_PATH = "M4.25 2.5a1.75 1.75 0 0 0-1.75 1.75v7.5c0 .966.784 1.75 1.75 1.75h7.5A1.75 1.75 0 0 0 13.5 11.75v-7.5A1.75 1.75 0 0 0 11.75 2.5h-7.5Z";
 
   function iconMarkup(path, size) {
     size = size || 16;
@@ -90,6 +91,7 @@
     pr_opened: { label: "PR opened", state: "open", desc: "Remediation verified; pull request created on GitHub." },
     flaky_rerun: { label: "Flaky rerun", state: "flaky", desc: "Transient or infrastructure failure; workflow rerun triggered." },
     failed: { label: "Failed", state: "closed", desc: "Remediation could not be completed automatically." },
+    cancelled: { label: "Cancelled", state: "closed", desc: "Remediation job was stopped by user." },
     guardrail_rejected: { label: "Guardrail blocked", state: "closed", desc: "Patch rejected by a safety rule before creating PR." }
   };
 
@@ -221,7 +223,7 @@
         stageStates.diagnosing = "completed";
         stageStates.verifying = "failed";
       }
-    } else if (status === "failed") {
+    } else if (status === "failed" || status === "cancelled") {
       stageStates.queued = "completed";
       stageStates.extracting = "completed";
       stageStates.diagnosing = "completed";
@@ -304,6 +306,14 @@
       }
     }
 
+    // Stop button state
+    var stopForm = document.getElementById("stop-form");
+    if (stopForm) {
+      stopForm.style.display = isActive ? "inline-block" : "none";
+      var stopBtn = document.getElementById("stop-btn");
+      if (stopBtn) stopBtn.disabled = false;
+    }
+
     // Root cause update
     if (job.root_cause) {
       var diagBody = document.getElementById("diagnosis-body");
@@ -358,6 +368,12 @@
         streamText.textContent = "Live";
       }
       updatePipelineStepper("queued", null);
+      var stopForm = document.getElementById("stop-form");
+      if (stopForm) {
+        stopForm.style.display = "inline-block";
+        var stopBtn = document.getElementById("stop-btn");
+        if (stopBtn) stopBtn.disabled = false;
+      }
 
       fetch("/api/v1/jobs/" + encodeURIComponent(currentJobId) + "/rerun", {
         method: "POST",
@@ -378,6 +394,44 @@
         btn.disabled = false;
         if (btnText) btnText.textContent = "Re-run job";
         alert("Failed to queue re-run: " + err.message);
+      });
+    });
+  }
+
+  // Hook Stop Form on Job Detail Page (AJAX submission)
+  var detailStopForm = document.querySelector("[data-stop-form]");
+  if (detailStopForm) {
+    detailStopForm.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var btn = document.getElementById("stop-btn");
+      if (!btn || btn.disabled) return;
+
+      var btnText = btn.querySelector(".btn-text");
+      btn.disabled = true;
+      btn.classList.add("is-loading");
+      if (btnText) btnText.textContent = "Stopping...";
+
+      fetch("/api/v1/jobs/" + encodeURIComponent(currentJobId) + "/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      })
+      .then(function (res) {
+        btn.classList.remove("is-loading");
+        if (!res.ok) {
+          throw new Error("Stop request failed");
+        }
+        return res.json();
+      })
+      .then(function (data) {
+        btn.disabled = false;
+        if (btnText) btnText.textContent = "Stop job";
+        if (detailStopForm) detailStopForm.style.display = "none";
+      })
+      .catch(function (err) {
+        btn.classList.remove("is-loading");
+        btn.disabled = false;
+        if (btnText) btnText.textContent = "Stop job";
+        alert("Failed to stop job: " + err.message);
       });
     });
   }
@@ -428,6 +482,11 @@
         '<td data-field="duration"><span class="text-muted">0s</span></td>' +
         '<td><span class="text-muted">just now</span></td>' +
         '<td class="text-right table-actions">' +
+          '<form method="post" action="/jobs/' + job.id + '/stop" class="d-inline" data-stop-row-form>' +
+            '<button type="submit" class="btn btn-sm btn-invisible text-danger p-1" title="Stop running job" data-stop-row="' + job.id + '">' +
+              iconMarkup(STOP_PATH, 14) +
+            '</button>' +
+          '</form>' +
           '<form method="post" action="/jobs/' + job.id + '/rerun" class="d-inline" data-rerun-row-form>' +
             '<button type="submit" class="btn btn-sm btn-invisible p-1" title="Re-run remediation job" data-rerun-row="' + job.id + '" disabled>' +
               iconMarkup(SYNC_PATH, 14) +
@@ -505,12 +564,49 @@
         var isActive = ["queued", "extracting", "diagnosing", "verifying"].indexOf(data.status) !== -1;
         rowRerunBtn.disabled = isActive;
       }
+
+      var rowStopForm = row.querySelector('[data-stop-row-form]');
+      if (rowStopForm) {
+        var isActive = ["queued", "extracting", "diagnosing", "verifying"].indexOf(data.status) !== -1;
+        rowStopForm.style.display = isActive ? "inline-block" : "none";
+        var rowStopBtn = rowStopForm.querySelector("[data-stop-row]");
+        if (rowStopBtn) rowStopBtn.disabled = false;
+      }
     }
   }
 
-  // Hook Quick Re-run buttons in table rows
+  // Hook Quick Re-run and Stop buttons in table rows
   document.addEventListener("submit", function (ev) {
     var form = ev.target;
+    if (form && form.matches("[data-stop-row-form]")) {
+      ev.preventDefault();
+      var button = form.querySelector("[data-stop-row]");
+      if (!button || button.disabled) return;
+      var jobId = button.getAttribute("data-stop-row");
+      button.disabled = true;
+      button.classList.add("is-loading");
+
+      fetch("/api/v1/jobs/" + encodeURIComponent(jobId) + "/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      })
+      .then(function (res) {
+        button.classList.remove("is-loading");
+        if (!res.ok) throw new Error("Failed to stop job");
+        return res.json();
+      })
+      .then(function () {
+        button.disabled = false;
+        form.style.display = "none";
+        handleJobStatus({ id: jobId, status: "cancelled" });
+      })
+      .catch(function (err) {
+        button.classList.remove("is-loading");
+        button.disabled = false;
+        alert("Error stopping job: " + err.message);
+      });
+    }
+
     if (form && form.matches("[data-rerun-row-form]")) {
       ev.preventDefault();
       var button = form.querySelector("[data-rerun-row]");

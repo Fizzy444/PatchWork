@@ -111,6 +111,12 @@
             <span class="text-muted" title="{{ job.created_at }}">{{ job.created_at|relative_time }}</span>
           </td>
           <td class="text-right table-actions">
+            <form method="post" action="/jobs/{{ job.id }}/stop" class="d-inline" data-stop-row-form
+              {% if job.status not in ('queued', 'extracting', 'diagnosing', 'verifying') %}style="display:none;"{% endif %}>
+              <button type="submit" class="btn btn-sm btn-invisible text-danger p-1" title="Stop running job" data-stop-row="{{ job.id }}">
+                {{ octicon("stop", 14) }}
+              </button>
+            </form>
             <form method="post" action="/jobs/{{ job.id }}/rerun" class="d-inline" data-rerun-row-form>
               <button type="submit" class="btn btn-sm btn-invisible p-1" title="Re-run remediation job" data-rerun-row="{{ job.id }}"
                 {% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}disabled{% endif %}>

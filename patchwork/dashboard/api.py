@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from patchwork.database import (
+    cancel_job,
     get_job,
     get_job_events,
     get_metrics_summary,
@@ -131,3 +132,14 @@ async def trigger_job_rerun(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return {"status": "queued", "job_id": job.id, "message": "Job successfully queued for re-run."}
+
+
+@router.post("/jobs/{job_id}/stop")
+async def trigger_job_stop(job_id: str):
+    """
+    Manually stop / cancel an in-flight or queued remediation job.
+    """
+    job = await cancel_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": "cancelled", "job_id": job.id, "message": "Job successfully stopped."}

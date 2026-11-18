@@ -435,6 +435,56 @@ async def rerun_job(job_id: str) -> Optional[HealingJobRecord]:
     return job
 
 
+async def cancel_job(job_id: str) -> Optional[HealingJobRecord]:
+    """
+    Cancels an active or queued remediation job.
+    Cancels the in-flight worker task if running, updates the database status to CANCELLED,
+    records a timeline event, and broadcasts an SSE status update.
+    """
+    from patchwork.queue.worker import worker
+
+    # 1. Cancel in-flight worker task if currently executing
+    worker.cancel_job(job_id)
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(HealingJobRecord).where(HealingJobRecord.id == job_id)
+        )
+        job = result.scalar_one_or_none()
+        if not job:
+            return None
+
+        # Only update status if currently active or queued
+        active_statuses = {"queued", "extracting", "diagnosing", "verifying"}
+        if job.status in active_statuses:
+            job.status = JobStatus.CANCELLED.value
+            job.error_summary = "Job stopped by user."
+            job.updated_at = datetime.utcnow()
+            await session.commit()
+            await session.refresh(job)
+
+            # 2. Record timeline event
+            await record_job_event(
+                job_id=job.id,
+                stage="cancelled",
+                level="warning",
+                message="Remediation job was stopped by user."
+            )
+
+            # 3. Broadcast status update to live dashboard clients
+            await event_broadcaster.broadcast(
+                "job_status",
+                {
+                    "id": job.id,
+                    "status": JobStatus.CANCELLED.value,
+                    "error_summary": "Job stopped by user.",
+                    "duration_seconds": job.duration_seconds,
+                }
+            )
+
+    return job
+
+
 def _record_to_response(
     record: HealingJobRecord,
     attempts: Optional[List[PatchAttemptRecord]] = None,

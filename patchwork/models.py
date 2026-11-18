@@ -23,6 +23,7 @@ class JobStatus(str, Enum):
     FLAKY_RERUN = "flaky_rerun"
     FAILED = "failed"
     GUARDRAIL_REJECTED = "guardrail_rejected"
+    CANCELLED = "cancelled"
 
 
 class HealingJobRecord(Base):

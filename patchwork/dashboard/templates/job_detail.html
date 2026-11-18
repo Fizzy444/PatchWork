@@ -26,6 +26,14 @@
     </div>
   </div>
   <div class="page-actions d-flex align-items-center gap-2">
+    <form method="post" action="/jobs/{{ job.id }}/stop" class="d-inline" id="stop-form" data-stop-form
+      {% if job.status not in ('queued', 'extracting', 'diagnosing', 'verifying') %}style="display:none;"{% endif %}>
+      <button type="submit" class="btn btn-sm btn-danger" id="stop-btn" data-job-id="{{ job.id }}"
+        title="Stop this running remediation job">
+        {{ octicon("stop", 16) }}
+        <span class="btn-text">Stop job</span>
+      </button>
+    </form>
     <form method="post" action="/jobs/{{ job.id }}/rerun" class="d-inline" data-rerun-form>
       <button type="submit" class="btn btn-sm" id="rerun-btn" data-job-id="{{ job.id }}"
         {% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}disabled{% endif %}

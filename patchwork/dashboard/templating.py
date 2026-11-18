@@ -69,6 +69,12 @@ STATUS_META: Dict[str, Dict[str, str]] = {
         "icon": "shield-check",
         "description": "A safety guardrail rejected the change.",
     },
+    "cancelled": {
+        "label": "Cancelled",
+        "state": "closed",
+        "icon": "stop",
+        "description": "Remediation job was stopped by user.",
+    },
 }
 
 ACTIVE_STATUSES = {"queued", "extracting", "diagnosing", "verifying"}

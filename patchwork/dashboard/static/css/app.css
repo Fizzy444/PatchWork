@@ -521,6 +521,24 @@ p {
   color: #ffffff;
 }
 
+.btn-danger {
+  color: var(--danger-fg);
+  border-color: var(--border-default);
+  background: var(--canvas-subtle);
+}
+
+.btn-danger:hover {
+  background: var(--danger-fg);
+  border-color: var(--danger-fg);
+  color: #ffffff;
+}
+
+.btn-danger:active {
+  background: #b62324;
+  border-color: #b62324;
+  color: #ffffff;
+}
+
 .btn-sm {
   height: 28px;
   padding: 0 10px;
@@ -2880,6 +2898,7 @@ textarea.form-control {
 .console-stage--verifying { background: #4d3800; color: #e3b341; }
 .console-stage--pr_opened { background: #1b4721; color: #3fb950; }
 .console-stage--failed { background: #541c1d; color: #f85149; }
+.console-stage--cancelled { background: #541c1d; color: #f85149; }
 .console-stage--guardrail_rejected { background: #541c1d; color: #f85149; }
 .console-stage--flaky_rerun { background: #4d3800; color: #e3b341; }
 

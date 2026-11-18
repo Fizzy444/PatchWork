@@ -377,3 +377,64 @@ async def test_events_sse_endpoint_stream(client):
     assert "text/event-stream" in response.headers.get("content-type", "")
     assert "event: connected" in response.text
 
+
+@pytest.mark.asyncio
+async def test_job_stop_api_and_form(client):
+    from patchwork.database import create_job_record, record_job_event, get_job, update_job_status
+    from patchwork.models import JobStatus
+
+    job_id = f"test-stop-{uuid.uuid4().hex[:8]}"
+    await create_job_record(
+        job_id=job_id,
+        repo_name="org/stop-repo",
+        branch_name="feature/stop-test",
+        commit_sha="fedcba654321",
+        workflow_name="CI",
+        run_id=303,
+    )
+    await update_job_status(job_id=job_id, status=JobStatus.DIAGNOSING)
+    await record_job_event(
+        job_id=job_id,
+        stage="diagnosing",
+        message="AI diagnosing error in progress...",
+        level="info"
+    )
+
+    # 1. Detail page should render Stop job button for active job
+    detail_page = await client.get(f"/jobs/{job_id}")
+    assert detail_page.status_code == 200
+    assert "stop-form" in detail_page.text
+    assert "Stop job" in detail_page.text
+
+    # 2. Stop via API
+    stop_res = await client.post(f"/api/v1/jobs/{job_id}/stop")
+    assert stop_res.status_code == 200
+    assert stop_res.json()["status"] == "cancelled"
+
+    job = await get_job(job_id)
+    assert job.status == "cancelled"
+    assert "stopped by user" in (job.error_summary or "").lower()
+
+    # 3. Stop via HTML Form
+    job_id2 = f"test-stop-form-{uuid.uuid4().hex[:8]}"
+    await create_job_record(
+        job_id=job_id2,
+        repo_name="org/stop-repo-2",
+        branch_name="feature/stop-form",
+        commit_sha="987654abcdef",
+        workflow_name="CI",
+        run_id=404,
+    )
+    await update_job_status(job_id=job_id2, status=JobStatus.VERIFYING)
+    form_stop = await client.post(f"/jobs/{job_id2}/stop", follow_redirects=False)
+    assert form_stop.status_code == 303
+    assert form_stop.headers["location"] == f"/jobs/{job_id2}"
+
+    job2 = await get_job(job_id2)
+    assert job2.status == "cancelled"
+
+    # 4. Stop 404 for non-existent job
+    res_404 = await client.post("/api/v1/jobs/non-existent-job-xyz/stop")
+    assert res_404.status_code == 404
+
+

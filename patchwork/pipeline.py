@@ -7,11 +7,12 @@ and Pull Request Resolution with full guardrail enforcement.
 import time
 import os
 import logging
+import asyncio
 from typing import Optional, Dict
 
 from patchwork.config import settings
 from patchwork.models import JobStatus
-from patchwork.database import update_job_status, record_job_event
+from patchwork.database import update_job_status, record_job_event, get_job
 from patchwork.queue.broker import JobMessage
 from patchwork.extractor.parser import extract_stack_trace
 from patchwork.extractor.ast_extractor import ASTContextExtractor
@@ -55,6 +56,12 @@ class PipelineOrchestrator:
         )
 
         try:
+            # Check if job was cancelled while waiting in queue
+            existing_job = await get_job(job_id)
+            if existing_job and existing_job.status == JobStatus.CANCELLED.value:
+                logger.info(f"[{job_id}] Job was cancelled while queued. Aborting execution.")
+                return False
+
             # -------------------------------------------------------------
             # STAGE 2 GUARDRAIL: Infinite Loop Prevention
             # -------------------------------------------------------------
@@ -324,6 +331,23 @@ class PipelineOrchestrator:
 
             logger.info(f"[{job_id}] Successfully healed build! PR Opened: {pr_url} in {total_duration:.1f}s")
             return True
+
+        except asyncio.CancelledError:
+            total_duration = time.time() - start_time
+            logger.warning(f"[{job_id}] Pipeline execution cancelled by user after {total_duration:.1f}s.")
+            await record_job_event(
+                job_id=job_id,
+                stage="cancelled",
+                message="Remediation job was stopped by user.",
+                level="warning"
+            )
+            await update_job_status(
+                job_id=job_id,
+                status=JobStatus.CANCELLED,
+                error_summary="Job stopped by user.",
+                duration_seconds=total_duration
+            )
+            raise
 
         except Exception as err:
             total_duration = time.time() - start_time
