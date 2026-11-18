@@ -44,11 +44,9 @@ class LLMClient:
             return self._call_mock(prompt)
 
     async def _call_gemini(self, prompt: str, system_prompt: str) -> LLMDiagnosisResult:
-        """Calls Google Gemini REST API."""
+        """Calls Google Gemini REST API with automatic model fallback."""
         api_key = settings.GEMINI_API_KEY or os.getenv("GEMINI_API_KEY")
-        model = settings.LLM_MODEL or "gemini-1.5-pro"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-
+        model = settings.LLM_MODEL or "gemini-2.5-flash"
         payload = {
             "system_instruction": {
                 "parts": [{"text": system_prompt}]
@@ -64,28 +62,43 @@ class LLMClient:
             }
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                resp = await client.post(url, json=payload)
+                if resp.status_code != 200 and model != "gemini-2.5-flash":
+                    logger.warning(
+                        f"Gemini model '{model}' returned HTTP {resp.status_code}. Falling back to 'gemini-2.5-flash'..."
+                    )
+                    model = "gemini-2.5-flash"
+                    fallback_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+                    resp = await client.post(fallback_url, json=payload)
 
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise RuntimeError("No generation candidates returned from Gemini.")
+                resp.raise_for_status()
+                data = resp.json()
 
-            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            usage = data.get("usageMetadata", {})
-            tokens = usage.get("totalTokenCount", 350)
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    raise RuntimeError("No generation candidates returned from Gemini.")
 
-            diff = extract_diff_from_llm_response(text)
-            root_cause = self._extract_root_cause(text)
+                text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                usage = data.get("usageMetadata", {})
+                tokens = usage.get("totalTokenCount", 350)
 
-            return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens)
+                diff = extract_diff_from_llm_response(text)
+                root_cause = self._extract_root_cause(text)
+
+                return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens)
+        except Exception as e:
+            logger.error(f"Gemini API call failed ({e}). Falling back to local diagnostic engine to prevent pipeline deadlock.")
+            mock_res = self._call_mock(prompt)
+            mock_res.root_cause = f"[Fallback: Gemini failed ({type(e).__name__})] {mock_res.root_cause}"
+            return mock_res
 
     async def _call_openai(self, prompt: str, system_prompt: str) -> LLMDiagnosisResult:
         """Calls OpenAI Chat Completions API."""
         api_key = settings.OPENAI_API_KEY or os.getenv("OPENAI_API_KEY")
-        model = settings.LLM_MODEL if "gpt" in settings.LLM_MODEL else "gpt-4o"
+        model = settings.LLM_MODEL if "gpt" in (settings.LLM_MODEL or "") else "gpt-4o"
         url = "https://api.openai.com/v1/chat/completions"
 
         headers = {
@@ -101,18 +114,24 @@ class LLMClient:
             "temperature": 0.2,
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
 
-            text = data["choices"][0]["message"]["content"]
-            tokens = data.get("usage", {}).get("total_tokens", 350)
+                text = data["choices"][0]["message"]["content"]
+                tokens = data.get("usage", {}).get("total_tokens", 350)
 
-            diff = extract_diff_from_llm_response(text)
-            root_cause = self._extract_root_cause(text)
+                diff = extract_diff_from_llm_response(text)
+                root_cause = self._extract_root_cause(text)
 
-            return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens)
+                return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens)
+        except Exception as e:
+            logger.error(f"OpenAI API call failed ({e}). Falling back to local diagnostic engine.")
+            mock_res = self._call_mock(prompt)
+            mock_res.root_cause = f"[Fallback: OpenAI failed ({type(e).__name__})] {mock_res.root_cause}"
+            return mock_res
 
     async def _call_claude(self, prompt: str, system_prompt: str) -> LLMDiagnosisResult:
         """Calls Anthropic Claude Messages API."""
@@ -135,23 +154,29 @@ class LLMClient:
             "temperature": 0.2,
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
 
-            text = ""
-            for block in data.get("content", []):
-                if block.get("type") == "text":
-                    text += block.get("text", "")
+                text = ""
+                for block in data.get("content", []):
+                    if block.get("type") == "text":
+                        text += block.get("text", "")
 
-            usage = data.get("usage", {})
-            tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
+                usage = data.get("usage", {})
+                tokens = usage.get("input_tokens", 0) + usage.get("output_tokens", 0)
 
-            diff = extract_diff_from_llm_response(text)
-            root_cause = self._extract_root_cause(text)
+                diff = extract_diff_from_llm_response(text)
+                root_cause = self._extract_root_cause(text)
 
-            return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens or 350)
+                return LLMDiagnosisResult(root_cause=root_cause, patch_diff=diff, raw_response=text, tokens_used=tokens or 350)
+        except Exception as e:
+            logger.error(f"Claude API call failed ({e}). Falling back to local diagnostic engine.")
+            mock_res = self._call_mock(prompt)
+            mock_res.root_cause = f"[Fallback: Claude failed ({type(e).__name__})] {mock_res.root_cause}"
+            return mock_res
 
     def _call_mock(self, prompt: str) -> LLMDiagnosisResult:
         """
