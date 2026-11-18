@@ -70,3 +70,35 @@ async def test_infinite_loop_branch_ignored():
         data = resp.json()
         assert data["status"] == "ignored"
         assert data["guardrail"] == "INFINITE_LOOP_PREVENTION"
+
+
+from unittest.mock import patch
+from patchwork.github.client import GitHubClient
+
+
+@pytest.mark.asyncio
+async def test_github_app_stateless_token_support():
+    """Verify GitHub App client sends override header and supports 520+ char stateless tokens."""
+    client = GitHubClient()
+    client.app_id = "123456"
+    client.private_key = "fake_key"
+
+    # Simulated ~520 char stateless GitHub token (ghs_APPID_JWT)
+    stateless_token = "ghs_123456_" + ("aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789" * 14)
+    assert len(stateless_token) >= 500
+
+    with patch.object(client, "_generate_app_jwt", return_value="mock.jwt.token"), \
+         patch("httpx.AsyncClient.post") as mock_post:
+
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json = lambda: {"token": stateless_token}
+
+        token = await client.get_installation_token(987654)
+        assert token == stateless_token
+
+        # Verify override header was sent
+        call_args = mock_post.call_args
+        assert call_args is not None
+        req_headers = call_args[1].get("headers", {})
+        assert req_headers.get("X-GitHub-Stateless-S2S-Token") == "true"
+        assert "Authorization" in req_headers

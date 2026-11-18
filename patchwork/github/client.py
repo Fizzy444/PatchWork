@@ -60,7 +60,8 @@ class GitHubClient:
         url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
         headers = {
             "Authorization": f"Bearer {app_jwt}",
-            "Accept": "application/vnd.github+json"
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Stateless-S2S-Token": "true",
         }
 
         async with httpx.AsyncClient() as client:
