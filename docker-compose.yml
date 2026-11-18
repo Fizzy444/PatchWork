@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  gateway:
+    build: .
+    container_name: patchwork-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:///./patchwork.db
+      - GITHUB_WEBHOOK_SECRET=patchwork_secret_token
+      - LLM_PROVIDER=gemini
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+
+  worker:
+    build: .
+    container_name: patchwork-worker
+    restart: unless-stopped
+    command: ["python", "-c", "import asyncio; from patchwork.queue.worker import worker; asyncio.run(worker.start())"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:///./patchwork.db
+      - LLM_PROVIDER=gemini
+    volumes:
+      - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    container_name: patchwork-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

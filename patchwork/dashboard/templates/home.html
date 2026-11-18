@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+{% from "_macros.html" import brand_mark, octicon with context %}
+
+{% block title %}Patchwork · Autonomous CI Self-Healing & PR Remediation Engine{% endblock %}
+
+{% block content %}
+<!-- Hero Section -->
+<section class="Box home-hero mb-4">
+  <div class="home-hero-main">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <span class="badge-pill badge-pill--success">
+        {{ octicon("check-circle-fill", 12) }} Fully Autonomous
+      </span>
+      <span class="badge-pill">
+        {{ octicon("shield-check", 12) }} 4 Guardrails Active
+      </span>
+      <span class="badge-pill">
+        {{ octicon("plug", 12) }} Auto-Smee Built-in
+      </span>
+    </div>
+
+    <div class="home-brand">{{ brand_mark(40) }}</div>
+    <h1>Turn failing CI runs into verified pull requests.</h1>
+    <p class="home-lead">
+      When tests break on GitHub Actions, Patchwork ingests workflow logs, extracts the stack trace,
+      diagnoses the root cause with AI, reproduces the failure in an isolated sandbox,
+      verifies that all tests pass, and opens a guarded Pull Request with zero manual triage.
+    </p>
+
+    <div class="home-actions">
+      {% if current_user %}
+      <a class="btn btn-primary" href="/overview">Go to Dashboard</a>
+      <a class="btn" href="/jobs">View Jobs</a>
+      <a class="btn" href="/guide">{{ octicon("book", 14) }} Setup Guide</a>
+      {% elif registration_open|default(true) %}
+      <a class="btn btn-primary" href="/register">Get started</a>
+      <a class="btn" href="/login">Sign in</a>
+      <a class="btn" href="/guide">{{ octicon("book", 14) }} Documentation</a>
+      {% else %}
+      <a class="btn btn-primary" href="/login">Sign in</a>
+      <a class="btn" href="/guide">{{ octicon("book", 14) }} Documentation</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="home-hero-side">
+    <div class="text-small text-muted font-weight-semibold text-uppercase mb-3">
+      Engine Specifications
+    </div>
+    <ul class="detail-list">
+      <li>
+        <span>Supported AI</span>
+        <strong>Gemini · Claude · OpenAI</strong>
+      </li>
+      <li>
+        <span>Webhook Tunnel</span>
+        <strong>Auto-Smee SSE (No Terminal)</strong>
+      </li>
+      <li>
+        <span>Test Sandbox</span>
+        <strong>Docker / Subprocess Isolation</strong>
+      </li>
+      <li>
+        <span>Test Protection</span>
+        <strong>Tests & CI Workflows Immutable</strong>
+      </li>
+      <li>
+        <span>Remediation</span>
+        <strong>Branch <code>ai-fix/*</code> & Pull Request</strong>
+      </li>
+    </ul>
+  </div>
+</section>
+
+<!-- Visual 5-Stage Execution Pipeline -->
+<div class="pipeline-flow-wrap mb-4">
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <h2 class="h5 mb-0 d-flex align-items-center gap-2">
+      {{ octicon("pulse", 16) }} Autonomous Remediation Pipeline
+    </h2>
+    <span class="text-small text-muted">Deterministic flow from failure to green PR</span>
+  </div>
+
+  <div class="pipeline-flow">
+    <div class="pipeline-step">
+      <div class="pipeline-step-header">
+        <span class="pipeline-step-num">1</span>
+        <span class="pipeline-step-title">Ingest</span>
+      </div>
+      <p class="pipeline-step-desc">GitHub posts webhook to Smee or local gateway. HMAC signature verified.</p>
+    </div>
+
+    <div class="pipeline-arrow">{{ octicon("chevron-right", 16) }}</div>
+
+    <div class="pipeline-step">
+      <div class="pipeline-step-header">
+        <span class="pipeline-step-num">2</span>
+        <span class="pipeline-step-title">Extract</span>
+      </div>
+      <p class="pipeline-step-desc">Unpacks zip log archive, locates failing step, parses stack trace.</p>
+    </div>
+
+    <div class="pipeline-arrow">{{ octicon("chevron-right", 16) }}</div>
+
+    <div class="pipeline-step">
+      <div class="pipeline-step-header">
+        <span class="pipeline-step-num">3</span>
+        <span class="pipeline-step-title">Diagnose</span>
+      </div>
+      <p class="pipeline-step-desc">LLM pinpoints defect in source code and crafts surgical unified diff.</p>
+    </div>
+
+    <div class="pipeline-arrow">{{ octicon("chevron-right", 16) }}</div>
+
+    <div class="pipeline-step">
+      <div class="pipeline-step-header">
+        <span class="pipeline-step-num">4</span>
+        <span class="pipeline-step-title">Verify</span>
+      </div>
+      <p class="pipeline-step-desc">Executes tests in isolated sandbox. Re-prompts on failure until green.</p>
+    </div>
+
+    <div class="pipeline-arrow">{{ octicon("chevron-right", 16) }}</div>
+
+    <div class="pipeline-step">
+      <div class="pipeline-step-header">
+        <span class="pipeline-step-num">5</span>
+        <span class="pipeline-step-title">Remediate</span>
+      </div>
+      <p class="pipeline-step-desc">Enforces guardrails, pushes <code>ai-fix/*</code> branch, opens GitHub PR.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Real Automated Fix Preview Box -->
+<section class="Box preview-pr-box mb-4">
+  <div class="preview-pr-header">
+    <div class="preview-pr-title">
+      {{ octicon("git-pull-request", 16) }}
+      <span>Live Verification Example: Fizzy444/Test #1</span>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <span class="State State--open text-small">Verified in 1.4s</span>
+      <span class="text-small text-muted font-mono">ai-fix/run-44325805627</span>
+    </div>
+  </div>
+  <div class="Box-body p-0">
+    <div class="p-3 bg-canvas-subtle border-bottom text-small">
+      <strong>PR Title:</strong> <code>[AI Fix] Resolve test_square failure in tests/test_calculator.py</code>
+      <div class="text-muted mt-1">
+        Target: <code>calculator.py</code> · Test runner: <code>pytest</code> · Sandbox outcome: <strong>1 passed, 0 failed (0.02s)</strong>
+      </div>
+    </div>
+    <div class="preview-diff-line preview-diff-del">
+      <span class="preview-diff-num">4</span>
+      <span class="preview-diff-code">-    return x + 2</span>
+    </div>
+    <div class="preview-diff-line preview-diff-add">
+      <span class="preview-diff-num">4</span>
+      <span class="preview-diff-code">+    return x ** 2</span>
+    </div>
+  </div>
+</section>
+
+<!-- Architectural Guardrails Matrix -->
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h2 class="h5 mb-0 d-flex align-items-center gap-2">
+    {{ octicon("shield-check", 16) }} Architectural Guardrails
+  </h2>
+  <a class="text-small" href="/guardrails">Inspect active policies &rarr;</a>
+</div>
+
+<section class="home-features mb-4" aria-label="Guardrails and capabilities">
+  <article class="Box home-feature">
+    <div class="Box-body">
+      {{ octicon("shield-check", 20) }}
+      <h2>Never Touch Tests</h2>
+      <p>Test suites, mocks, and CI workflows are strictly immutable. Patchwork only modifies application code, never the tests asserting behavior.</p>
+    </div>
+  </article>
+
+  <article class="Box home-feature">
+    <div class="Box-body">
+      {{ octicon("checklist", 20) }}
+      <h2>Diff Size Limits</h2>
+      <p>Hard limits (default 50 lines) prevent runaway code rewrites. If a proposed fix requires touching half the codebase, it is safely rejected.</p>
+    </div>
+  </article>
+
+  <article class="Box home-feature">
+    <div class="Box-body">
+      {{ octicon("sync", 20) }}
+      <h2>Infinite Loop Defense</h2>
+      <p>Branches prefixed with <code>ai-fix/</code> are automatically excluded from triggering secondary jobs, eliminating circular CI storm risks.</p>
+    </div>
+  </article>
+
+  <article class="Box home-feature">
+    <div class="Box-body">
+      {{ octicon("server", 20) }}
+      <h2>Isolated Sandbox</h2>
+      <p>Every patch must execute and pass the project's real test suite locally in Docker or a sandboxed subprocess before any Git push.</p>
+    </div>
+  </article>
+</section>
+
+<!-- Call to action block -->
+<section class="Box p-4 text-center bg-canvas-subtle">
+  <h3 class="h4 mb-2">Ready to connect your repositories?</h3>
+  <p class="text-muted mb-3 mx-auto" style="max-width: 580px;">
+    Follow our step-by-step setup guide with full diagrams for GitHub Apps, webhook configuration, Smee tunneling, and test verification.
+  </p>
+  <div class="d-flex justify-content-center gap-2">
+    <a class="btn btn-primary" href="/guide">{{ octicon("book", 14) }} Read Setup Guide</a>
+    <a class="btn" href="/settings">{{ octicon("gear", 14) }} Open Settings</a>
+  </div>
+</section>
+{% endblock %}

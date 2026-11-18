@@ -1,0 +1,108 @@
+{% from "_macros.html" import brand_mark, octicon with context %}
+<!DOCTYPE html>
+<html lang="en" data-color-mode="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>{% block title %}Patchwork{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.ico?v=2" sizes="32x32">
+  <link rel="icon" href="/static/favicon.svg?v=2" type="image/svg+xml" sizes="any">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v=2">
+  <link rel="mask-icon" href="/static/favicon.svg?v=2" color="#1f883d">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("patchwork-theme");
+        var preferred = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.setAttribute("data-color-mode", stored || preferred);
+      } catch (error) {
+        document.documentElement.setAttribute("data-color-mode", "light");
+      }
+    })();
+  </script>
+</head>
+<body>
+  <header class="AppHeader">
+    <div class="AppHeader-inner">
+      <a class="AppHeader-logo" href="/" aria-label="Patchwork home">
+        {{ brand_mark(32) }}
+      </a>
+
+      <nav class="AppHeader-nav" aria-label="Primary">
+        {% if current_user %}
+        <a class="AppHeader-navItem{% if active == 'overview' %} is-active{% endif %}" href="/overview">
+          {{ octicon("pulse", 16) }}<span>Overview</span>
+        </a>
+        <a class="AppHeader-navItem{% if active == 'jobs' %} is-active{% endif %}" href="/jobs">
+          {{ octicon("checklist", 16) }}<span>Jobs</span>
+        </a>
+        <a class="AppHeader-navItem{% if active == 'guardrails' %} is-active{% endif %}" href="/guardrails">
+          {{ octicon("shield-check", 16) }}<span>Guardrails</span>
+        </a>
+        <a class="AppHeader-navItem{% if active == 'settings' %} is-active{% endif %}" href="/settings">
+          {{ octicon("gear", 16) }}<span>Settings</span>
+        </a>
+        <a class="AppHeader-navItem{% if active == 'guide' %} is-active{% endif %}" href="/guide">
+          {{ octicon("book", 16) }}<span>Guide</span>
+        </a>
+        {% else %}
+        <a class="AppHeader-navItem{% if active == 'home' %} is-active{% endif %}" href="/">
+          <span>Product</span>
+        </a>
+        <a class="AppHeader-navItem{% if active == 'guide' %} is-active{% endif %}" href="/guide">
+          {{ octicon("book", 16) }}<span>Documentation</span>
+        </a>
+        <a class="AppHeader-navItem" href="/docs">
+          <span>API</span>
+        </a>
+        {% endif %}
+      </nav>
+
+      <div class="AppHeader-actions">
+        {% if current_user %}
+        <span class="AppHeader-status" title="{{ system.github.detail }}">
+          <span class="status-dot status-dot--{{ 'ok' if system.github.state == 'ok' else 'warn' }}"></span>
+          <span class="AppHeader-statusText">
+            {{ "GitHub connected" if system.github.state == "ok" else "Local mode" }}
+          </span>
+        </span>
+        <span class="AppHeader-user">{{ current_user.username }}</span>
+        <form class="AppHeader-logout" method="post" action="/logout">
+          <button class="btn btn-sm btn-outline" type="submit">Sign out</button>
+        </form>
+        {% else %}
+        <a class="btn btn-sm btn-outline" href="/login">Sign in</a>
+        {% if registration_open is not defined or registration_open %}
+        <a class="btn btn-sm btn-primary" href="/register">Create account</a>
+        {% endif %}
+        {% endif %}
+
+        <button class="AppHeader-iconButton" type="button" data-theme-toggle aria-label="Toggle color mode" title="Toggle dark/light mode">
+          {{ octicon("moon", 16) }}
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="container-xl page-content">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container-xl site-footer-inner">
+      <span>Patchwork <span class="text-muted">v{{ app_version }}</span> · CI remediation</span>
+      <span class="site-footer-links">
+        <a href="/guide">Setup Guide</a>
+        <a href="/docs">API</a>
+        <a href="/healthz">Health</a>
+        <a href="/api/v1/metrics">Metrics</a>
+      </span>
+    </div>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
