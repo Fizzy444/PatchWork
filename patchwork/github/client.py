@@ -64,7 +64,7 @@ class GitHubClient:
             "X-GitHub-Stateless-S2S-Token": "true",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=headers)
             if resp.status_code == 201:
                 return resp.json().get("token")
@@ -94,24 +94,28 @@ class GitHubClient:
             "Accept": "application/vnd.github+json"
         }
 
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200:
-                if resp.content.startswith(b"PK"):
-                    import io
-                    import zipfile
-                    try:
-                        zf = zipfile.ZipFile(io.BytesIO(resp.content))
-                        logs_text = []
-                        for name in sorted(zf.namelist()):
-                            if name.endswith(".txt"):
-                                logs_text.append(zf.read(name).decode("utf-8", errors="replace"))
-                        if logs_text:
-                            return "\n".join(logs_text)
-                    except Exception as e:
-                        logger.error(f"Failed to decompress log archive: {e}")
-                return resp.text
-            logger.warning(f"Failed to fetch real logs ({resp.status_code}). Using mock fallback.")
+        try:
+            async with httpx.AsyncClient(follow_redirects=True, timeout=45.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    if resp.content.startswith(b"PK"):
+                        import io
+                        import zipfile
+                        try:
+                            zf = zipfile.ZipFile(io.BytesIO(resp.content))
+                            logs_text = []
+                            for name in sorted(zf.namelist()):
+                                if name.endswith(".txt"):
+                                    logs_text.append(zf.read(name).decode("utf-8", errors="replace"))
+                            if logs_text:
+                                return "\n".join(logs_text)
+                        except Exception as e:
+                            logger.error(f"Failed to decompress log archive: {e}")
+                    return resp.text
+                logger.warning(f"Failed to fetch real logs ({resp.status_code}). Using mock fallback.")
+                return self._get_mock_failure_log()
+        except Exception as e:
+            logger.warning(f"Error connecting to GitHub for workflow logs ({e}). Using fallback failure log.")
             return self._get_mock_failure_log()
 
     async def trigger_workflow_rerun(self, repo_name: str, run_id: int, installation_id: Optional[int] = None) -> bool:
@@ -130,7 +134,7 @@ class GitHubClient:
             "Accept": "application/vnd.github+json"
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(url, headers=headers)
             return resp.status_code in (201, 202)
 
@@ -146,12 +150,15 @@ class GitHubClient:
             "Accept": "application/vnd.github+json"
         }
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                content_b64 = data.get("content", "")
-                return base64.b64decode(content_b64).decode("utf-8")
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    content_b64 = data.get("content", "")
+                    return base64.b64decode(content_b64).decode("utf-8")
+        except Exception as e:
+            logger.warning(f"Error fetching file content '{file_path}' from GitHub: {e}")
         return None
 
     async def open_remediation_pr(
@@ -223,7 +230,7 @@ class GitHubClient:
             "Accept": "application/vnd.github+json"
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             # 1. Get base branch commit SHA
             ref_resp = await client.get(
                 f"https://api.github.com/repos/{repo_name}/git/refs/heads/{base_branch}",
