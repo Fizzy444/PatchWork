@@ -36,9 +36,22 @@ async_session = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Create all database tables if they do not exist."""
+    """Create all database tables if they do not exist, and apply column migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        def _migrate_columns(sync_conn):
+            from sqlalchemy import text
+            try:
+                # Check for SQLite table schema
+                res = sync_conn.execute(text("PRAGMA table_info(healing_jobs)"))
+                columns = {row[1] for row in res.fetchall()}
+                if columns and "installation_id" not in columns:
+                    sync_conn.execute(text("ALTER TABLE healing_jobs ADD COLUMN installation_id INTEGER"))
+            except Exception:
+                pass
+
+        await conn.run_sync(_migrate_columns)
 
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
