@@ -12,22 +12,30 @@
   <span>Run #{{ job.run_id }}</span>
 </nav>
 
-<div class="job-detail-head">
+<div class="job-detail-head" data-job-id="{{ job.id }}" data-job-status="{{ job.status }}">
   <div class="job-detail-title">
-    <span class="StateIcon StateIcon--{{ meta.state }}">{{ octicon(meta.icon, 20) }}</span>
+    <span class="StateIcon StateIcon--{{ meta.state }}" id="state-icon-wrap">{{ octicon(meta.icon, 20) }}</span>
     <div>
       <h1>{{ job.repo_name }} <span class="text-muted">Run #{{ job.run_id }}</span></h1>
       <div class="meta-line">
-        {{ status_badge(job.status) }}
-        <span>{{ meta.description }}</span>
+        <span id="job-status-badge-wrap">{{ status_badge(job.status) }}</span>
+        <span id="job-status-desc">{{ meta.description }}</span>
         <span class="meta-separator">·</span>
-        <span>{{ job.created_at|relative_time }}</span>
+        <span id="job-created-time">{{ job.created_at|relative_time }}</span>
       </div>
     </div>
   </div>
-  <div class="page-actions">
+  <div class="page-actions d-flex align-items-center gap-2">
+    <form method="post" action="/jobs/{{ job.id }}/rerun" class="d-inline" data-rerun-form>
+      <button type="submit" class="btn btn-sm" id="rerun-btn" data-job-id="{{ job.id }}"
+        {% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}disabled{% endif %}
+        title="Re-run this remediation job through the pipeline">
+        {{ octicon("sync", 16) }}
+        <span class="btn-text">{% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}Running...{% else %}Re-run job{% endif %}</span>
+      </button>
+    </form>
     {% if job.pull_request_url %}
-    <a class="btn btn-sm btn-primary" href="{{ job.pull_request_url }}" target="_blank" rel="noopener">
+    <a class="btn btn-sm btn-primary" id="pr-action-btn" href="{{ job.pull_request_url }}" target="_blank" rel="noopener">
       {{ octicon("git-pull-request", 16) }}
       View pull request{% if job.pull_request_number %} #{{ job.pull_request_number }}{% endif %}
       {{ octicon("link-external", 12) }}
@@ -37,13 +45,75 @@
   </div>
 </div>
 
+<div class="pipeline-stepper" id="pipeline-stepper" role="region" aria-label="Pipeline progression">
+  {% for stage in pipeline_stages %}
+  <div class="step-node step-node--{{ stage.state }}" data-stage-id="{{ stage.id }}">
+    <div class="step-icon-wrap">
+      {% if stage.state == "completed" %}
+        {{ octicon("check", 14) }}
+      {% elif stage.state == "active" %}
+        <span class="step-spinner"></span>
+      {% elif stage.state == "failed" %}
+        {{ octicon("x", 14) }}
+      {% else %}
+        <span class="step-dot"></span>
+      {% endif %}
+    </div>
+    <div class="step-info">
+      <span class="step-title">{{ stage.title }}</span>
+      <span class="step-desc">{{ stage.description }}</span>
+    </div>
+  </div>
+  {% if not loop.last %}
+  <div class="step-divider{% if stage.state == 'completed' %} is-completed{% endif %}" data-divider-after="{{ stage.id }}"></div>
+  {% endif %}
+  {% endfor %}
+</div>
+
 <div class="layout-two-col detail-layout">
   <div class="detail-main">
-    <section class="Box" aria-labelledby="summary-heading">
+    <section class="Box live-console-box" id="live-console" aria-labelledby="live-console-heading">
+      <div class="Box-header d-flex align-items-center justify-content-between">
+        <div class="d-flex align-items-center gap-2">
+          {{ octicon("terminal", 16) }}
+          <h2 id="live-console-heading" class="h4 mb-0">Pipeline Activity</h2>
+          <span class="stream-badge{% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %} is-live{% endif %}" id="stream-indicator">
+            <span class="pulse-dot"></span>
+            <span id="stream-text">{% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}Live{% elif job.status == 'pr_opened' %}Completed{% else %}Finished{% endif %}</span>
+          </span>
+        </div>
+        <div class="console-actions d-flex align-items-center gap-2">
+          <label class="auto-scroll-toggle d-flex align-items-center gap-1 text-small text-muted" style="cursor: pointer; user-select: none;">
+            <input type="checkbox" id="auto-scroll-chk" checked>
+            <span>Auto-scroll</span>
+          </label>
+          <button type="button" class="btn btn-sm btn-invisible p-1" id="clear-console-btn" title="Clear console view">
+            {{ octicon("trash", 14) }}
+          </button>
+        </div>
+      </div>
+      <div class="console-log-body" id="console-log-body" role="log" aria-live="polite">
+        {% if job.events %}
+          {% for event in job.events %}
+          <div class="console-line console-line--{{ event.level }}" data-event-id="{{ event.id }}">
+            <span class="console-time">{{ event.created_at.strftime("%H:%M:%S") }}</span>
+            <span class="console-stage console-stage--{{ event.stage }}">{{ event.stage|upper }}</span>
+            <span class="console-msg">{{ event.message }}</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="console-empty text-muted text-small" id="console-empty">
+            Waiting for pipeline events...
+          </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <section class="Box" id="diagnosis-section" aria-labelledby="summary-heading">
       <div class="Box-header">
         <h2 id="summary-heading">Diagnosis</h2>
       </div>
-      <div class="Box-body summary-body">
+      <div class="Box-body summary-body" id="diagnosis-body">
         {% if job.root_cause %}
         <h3>Root cause</h3>
         <p>{{ job.root_cause }}</p>
@@ -63,12 +133,12 @@
         {% endif %}
 
         {% if not job.root_cause and not job.error_summary %}
-        <p class="text-muted">No diagnosis has been recorded for this run yet.</p>
+        <p class="text-muted" id="no-diag-msg">No diagnosis has been recorded for this run yet.</p>
         {% endif %}
       </div>
     </section>
 
-    <section class="Box" aria-labelledby="patch-heading">
+    <section class="Box" id="patch-section" aria-labelledby="patch-heading">
       <div class="Box-header">
         <h2 id="patch-heading">
           Patch

@@ -298,3 +298,82 @@ async def test_smee_runner_status_and_guide():
     assert "active" in status
     assert "connected" in status
     assert "url" in status
+
+
+@pytest.mark.asyncio
+async def test_job_rerun_and_timeline_events(client):
+    from patchwork.database import create_job_record, record_job_event, get_job
+
+    job_id = f"test-rerun-{uuid.uuid4().hex[:8]}"
+    await create_job_record(
+        job_id=job_id,
+        repo_name="org/test-repo",
+        branch_name="fix/bug",
+        commit_sha="abcdef123456",
+        workflow_name="CI",
+        run_id=101,
+    )
+
+    await record_job_event(
+        job_id=job_id,
+        stage="extracting",
+        message="Parsing CI log crash details...",
+        level="info"
+    )
+
+    events_res = await client.get(f"/api/v1/jobs/{job_id}/events")
+    assert events_res.status_code == 200
+    events_data = events_res.json()
+    assert len(events_data) == 1
+    assert events_data[0]["message"] == "Parsing CI log crash details..."
+    assert events_data[0]["stage"] == "extracting"
+
+    rerun_res = await client.post(f"/api/v1/jobs/{job_id}/rerun")
+    assert rerun_res.status_code == 200
+    assert rerun_res.json()["status"] == "queued"
+
+    job = await get_job(job_id)
+    assert job.status == "queued"
+    assert len(job.events) >= 1
+    assert "re-run" in job.events[0].message.lower()
+
+    form_rerun = await client.post(f"/jobs/{job_id}/rerun", follow_redirects=False)
+    assert form_rerun.status_code == 303
+    assert form_rerun.headers["location"] == f"/jobs/{job_id}"
+
+
+@pytest.mark.asyncio
+async def test_job_detail_renders_stepper_and_console(client):
+    from patchwork.database import create_job_record, record_job_event
+
+    job_id = f"test-ui-{uuid.uuid4().hex[:8]}"
+    await create_job_record(
+        job_id=job_id,
+        repo_name="org/test-ui",
+        branch_name="main",
+        commit_sha="123456abcdef",
+        workflow_name="Build",
+        run_id=202,
+    )
+    await record_job_event(
+        job_id=job_id,
+        stage="queued",
+        message="Job intercepted from webhook",
+        level="info"
+    )
+
+    page = await client.get(f"/jobs/{job_id}")
+    assert page.status_code == 200
+    assert "Pipeline Activity" in page.text
+    assert "pipeline-stepper" in page.text
+    assert "rerun-btn" in page.text
+    assert "Job intercepted from webhook" in page.text
+
+
+@pytest.mark.asyncio
+async def test_events_sse_endpoint_stream(client):
+    response = await client.get("/api/v1/events?once=true")
+    assert response.status_code == 200
+    assert "text/event-stream" in response.headers.get("content-type", "")
+    assert "event: connected" in response.text
+

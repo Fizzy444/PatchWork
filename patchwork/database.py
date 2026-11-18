@@ -5,17 +5,20 @@ Database session and persistence management.
 from typing import AsyncGenerator, Dict, List, Optional, Tuple
 from datetime import datetime
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc, or_, delete
 
 from patchwork.config import settings
+from patchwork.realtime import event_broadcaster
 from patchwork.models import (
     Base,
     HealingJobRecord,
     PatchAttemptRecord,
+    JobEventRecord,
     JobStatus,
     MetricsSummary,
     JobResponse,
     PatchAttemptSchema,
+    JobEventSchema,
 )
 
 
@@ -50,7 +53,8 @@ async def create_job_record(
     branch_name: str,
     commit_sha: str,
     workflow_name: str,
-    run_id: int
+    run_id: int,
+    installation_id: Optional[int] = None
 ) -> HealingJobRecord:
     """Create a new job record with QUEUED status or reset existing."""
     async with async_session() as session:
@@ -65,28 +69,45 @@ async def create_job_record(
             existing.commit_sha = commit_sha
             existing.workflow_name = workflow_name
             existing.run_id = run_id
+            existing.installation_id = installation_id or existing.installation_id
             existing.attempts_count = 0
             existing.guardrail_violation = None
             existing.pull_request_url = None
             existing.diff_patch = None
             await session.commit()
             await session.refresh(existing)
-            return existing
+            job = existing
+        else:
+            job = HealingJobRecord(
+                id=job_id,
+                repo_name=repo_name,
+                branch_name=branch_name,
+                commit_sha=commit_sha,
+                workflow_name=workflow_name,
+                run_id=run_id,
+                installation_id=installation_id,
+                status=JobStatus.QUEUED.value,
+                created_at=datetime.utcnow()
+            )
+            session.add(job)
+            await session.commit()
+            await session.refresh(job)
 
-        job = HealingJobRecord(
-            id=job_id,
-            repo_name=repo_name,
-            branch_name=branch_name,
-            commit_sha=commit_sha,
-            workflow_name=workflow_name,
-            run_id=run_id,
-            status=JobStatus.QUEUED.value,
-            created_at=datetime.utcnow()
-        )
-        session.add(job)
-        await session.commit()
-        await session.refresh(job)
-        return job
+    # Broadcast new job creation to connected dashboard clients
+    await event_broadcaster.broadcast(
+        "job_created",
+        {
+            "id": job.id,
+            "repo_name": job.repo_name,
+            "branch_name": job.branch_name,
+            "commit_sha": job.commit_sha,
+            "workflow_name": job.workflow_name,
+            "run_id": job.run_id,
+            "status": job.status,
+            "created_at": job.created_at.isoformat()
+        }
+    )
+    return job
 
 
 async def update_job_status(
@@ -136,7 +157,26 @@ async def update_job_status(
 
         await session.commit()
         await session.refresh(job)
-        return job
+
+    # Broadcast updated job status to connected clients
+    await event_broadcaster.broadcast(
+        "job_status",
+        {
+            "id": job.id,
+            "status": job.status,
+            "failing_file": job.failing_file,
+            "failing_line": job.failing_line,
+            "error_summary": job.error_summary,
+            "root_cause": job.root_cause,
+            "diff_patch": job.diff_patch,
+            "pull_request_url": job.pull_request_url,
+            "pull_request_number": job.pull_request_number,
+            "guardrail_violation": job.guardrail_violation,
+            "duration_seconds": round(job.duration_seconds or 0.0, 2),
+            "attempts_count": job.attempts_count,
+        }
+    )
+    return job
 
 
 async def record_patch_attempt(
@@ -170,7 +210,20 @@ async def record_patch_attempt(
                 job.diff_patch = patch_diff
 
         await session.commit()
-        return attempt
+
+    # Broadcast attempt result to connected clients
+    await event_broadcaster.broadcast(
+        "patch_attempt",
+        {
+            "job_id": job_id,
+            "attempt_number": attempt_number,
+            "patch_diff": patch_diff,
+            "test_output": test_output,
+            "passed": passed,
+            "created_at": attempt.created_at.isoformat()
+        }
+    )
+    return attempt
 
 
 async def get_metrics_summary() -> MetricsSummary:
@@ -241,11 +294,140 @@ async def get_metrics_summary() -> MetricsSummary:
         )
 
 
+async def record_job_event(
+    job_id: str,
+    stage: str,
+    message: str,
+    level: str = "info",
+    details: Optional[str] = None
+) -> JobEventRecord:
+    """Record a real-time execution event or log entry for a remediation job."""
+    async with async_session() as session:
+        event = JobEventRecord(
+            job_id=job_id,
+            stage=stage,
+            level=level,
+            message=message,
+            details=details,
+            created_at=datetime.utcnow()
+        )
+        session.add(event)
+        await session.commit()
+        await session.refresh(event)
+
+    # Broadcast event to active dashboard clients
+    await event_broadcaster.broadcast(
+        "job_event",
+        {
+            "id": event.id,
+            "job_id": job_id,
+            "stage": stage,
+            "level": level,
+            "message": message,
+            "details": details,
+            "created_at": event.created_at.isoformat()
+        }
+    )
+    return event
+
+
+async def get_job_events(job_id: str) -> List[JobEventRecord]:
+    """Retrieve full chronological execution events for a job."""
+    async with async_session() as session:
+        res = await session.execute(
+            select(JobEventRecord)
+            .where(JobEventRecord.job_id == job_id)
+            .order_by(JobEventRecord.id.asc())
+        )
+        return list(res.scalars().all())
+
+
+async def rerun_job(job_id: str) -> Optional[HealingJobRecord]:
+    """
+    Resets a job's diagnosis, diff, and attempts, then re-enqueues it
+    into the remediation pipeline queue.
+    """
+    from patchwork.queue.broker import queue_broker, JobMessage
+
+    async with async_session() as session:
+        result = await session.execute(
+            select(HealingJobRecord).where(HealingJobRecord.id == job_id)
+        )
+        job = result.scalar_one_or_none()
+        if not job:
+            return None
+
+        # Reset fields
+        job.status = JobStatus.QUEUED.value
+        job.failing_file = None
+        job.failing_line = None
+        job.error_summary = None
+        job.root_cause = None
+        job.diff_patch = None
+        job.attempts_count = 0
+        job.pull_request_url = None
+        job.pull_request_number = None
+        job.pr_merged = False
+        job.guardrail_violation = None
+        job.duration_seconds = 0.0
+        job.updated_at = datetime.utcnow()
+
+        # Clear prior patch attempts and events so execution logs reflect fresh run
+        await session.execute(
+            delete(PatchAttemptRecord).where(PatchAttemptRecord.job_id == job_id)
+        )
+        await session.execute(
+            delete(JobEventRecord).where(JobEventRecord.job_id == job_id)
+        )
+        await session.commit()
+        await session.refresh(job)
+
+    # Initial event for re-run
+    await record_job_event(
+        job_id=job.id,
+        stage="queued",
+        level="info",
+        message=f"Manual re-run requested by user for {job.repo_name} run #{job.run_id}."
+    )
+
+    # Broadcast updated status
+    await event_broadcaster.broadcast(
+        "job_status",
+        {
+            "id": job.id,
+            "status": JobStatus.QUEUED.value,
+            "attempts_count": 0,
+            "duration_seconds": 0.0,
+            "pull_request_url": None,
+            "diff_patch": None,
+            "root_cause": None,
+        }
+    )
+
+    # Enqueue job message into the broker
+    extra_data = {}
+    if job.installation_id:
+        extra_data["installation_id"] = job.installation_id
+
+    job_msg = JobMessage(
+        job_id=job.id,
+        repo_name=job.repo_name,
+        branch_name=job.branch_name,
+        commit_sha=job.commit_sha,
+        workflow_name=job.workflow_name,
+        run_id=job.run_id,
+        extra=extra_data
+    )
+    await queue_broker.enqueue(job_msg)
+    return job
+
+
 def _record_to_response(
     record: HealingJobRecord,
-    attempts: Optional[List[PatchAttemptRecord]] = None
+    attempts: Optional[List[PatchAttemptRecord]] = None,
+    events: Optional[List[JobEventRecord]] = None,
 ) -> JobResponse:
-    """Serialize a job row (and optional attempts) for API and page rendering."""
+    """Serialize a job row (and optional attempts and events) for API and page rendering."""
     return JobResponse(
         id=record.id,
         repo_name=record.repo_name,
@@ -253,6 +435,7 @@ def _record_to_response(
         commit_sha=record.commit_sha,
         workflow_name=record.workflow_name,
         run_id=record.run_id,
+        installation_id=record.installation_id,
         status=record.status,
         failing_file=record.failing_file,
         failing_line=record.failing_line,
@@ -276,6 +459,18 @@ def _record_to_response(
                 created_at=a.created_at,
             )
             for a in (attempts or [])
+        ],
+        events=[
+            JobEventSchema(
+                id=e.id,
+                job_id=e.job_id,
+                stage=e.stage,
+                level=e.level,
+                message=e.message,
+                details=e.details,
+                created_at=e.created_at,
+            )
+            for e in (events or [])
         ],
     )
 
@@ -319,7 +514,7 @@ async def list_jobs(
 
 
 async def get_job(job_id: str) -> Optional[JobResponse]:
-    """Fetch one job with its full sandbox attempt history."""
+    """Fetch one job with its full sandbox attempt history and execution events."""
     async with async_session() as session:
         result = await session.execute(
             select(HealingJobRecord).where(HealingJobRecord.id == job_id)
@@ -334,7 +529,15 @@ async def get_job(job_id: str) -> Optional[JobResponse]:
             .order_by(PatchAttemptRecord.attempt_number)
         )
         attempts = attempts_result.scalars().all()
-        return _record_to_response(record, attempts)
+
+        events_result = await session.execute(
+            select(JobEventRecord)
+            .where(JobEventRecord.job_id == job_id)
+            .order_by(JobEventRecord.id.asc())
+        )
+        events = events_result.scalars().all()
+
+        return _record_to_response(record, attempts, events)
 
 
 async def get_status_counts() -> Dict[str, int]:

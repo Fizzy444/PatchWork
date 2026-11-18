@@ -103,17 +103,18 @@ async def handle_github_webhook(
 
     # 5. Create Job Record in Database
     job_id = f"job-{uuid.uuid4().hex[:12]}"
+    installation_id = payload.get("installation", {}).get("id")
     await create_job_record(
         job_id=job_id,
         repo_name=repo_name,
         branch_name=head_branch,
         commit_sha=head_sha,
         workflow_name=workflow_name,
-        run_id=run_id
+        run_id=run_id,
+        installation_id=installation_id
     )
 
     # 6. Push job message into the asynchronous queue
-    installation_id = payload.get("installation", {}).get("id")
     extra_data = {"installation_id": installation_id} if installation_id else {}
 
     job_message = JobMessage(

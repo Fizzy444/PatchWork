@@ -11,7 +11,7 @@ from typing import Optional, Dict
 
 from patchwork.config import settings
 from patchwork.models import JobStatus
-from patchwork.database import update_job_status
+from patchwork.database import update_job_status, record_job_event
 from patchwork.queue.broker import JobMessage
 from patchwork.extractor.parser import extract_stack_trace
 from patchwork.extractor.ast_extractor import ASTContextExtractor
@@ -47,6 +47,12 @@ class PipelineOrchestrator:
         total_tokens = 0
 
         logger.info(f"[{job_id}] Initiating Patchwork healing pipeline for {repo_name}@{branch_name} (Run #{run_id})")
+        await record_job_event(
+            job_id=job_id,
+            stage="queued",
+            message=f"Pipeline initialized for {repo_name}@{branch_name} (GitHub Run #{run_id}).",
+            level="info"
+        )
 
         # -------------------------------------------------------------
         # STAGE 2 GUARDRAIL: Infinite Loop Prevention
@@ -54,6 +60,12 @@ class PipelineOrchestrator:
         if is_loop_branch(branch_name):
             msg = f"Branch '{branch_name}' starts with '{settings.LOOP_PREVENTION_PREFIX}'. Ignoring to prevent infinite loop."
             logger.warning(f"[{job_id}] {msg}")
+            await record_job_event(
+                job_id=job_id,
+                stage="guardrail_rejected",
+                message=msg,
+                level="warning"
+            )
             await update_job_status(
                 job_id=job_id,
                 status=JobStatus.GUARDRAIL_REJECTED,
@@ -67,6 +79,12 @@ class PipelineOrchestrator:
         # STAGE 3: Context Gathering & Log Slicing
         # -------------------------------------------------------------
         await update_job_status(job_id=job_id, status=JobStatus.EXTRACTING)
+        await record_job_event(
+            job_id=job_id,
+            stage="extracting",
+            message=f"Fetching CI build logs from GitHub Actions for run #{run_id}...",
+            level="info"
+        )
 
         # 3.1 Fetch raw failure logs
         raw_logs = await github_client.fetch_workflow_logs(repo_name, run_id, installation_id=installation_id)
@@ -75,6 +93,12 @@ class PipelineOrchestrator:
         is_flaky, flaky_reason = is_flaky_or_transient_error(raw_logs)
         if is_flaky:
             logger.info(f"[{job_id}] Flaky failure detected: {flaky_reason}. Triggering workflow re-run.")
+            await record_job_event(
+                job_id=job_id,
+                stage="flaky_rerun",
+                message=f"Flaky/transient CI failure detected: {flaky_reason}. Dispatched workflow re-run to GitHub.",
+                level="warning"
+            )
             await github_client.trigger_workflow_rerun(repo_name, run_id, installation_id=installation_id)
             await update_job_status(
                 job_id=job_id,
@@ -89,6 +113,12 @@ class PipelineOrchestrator:
         if not error_context:
             err_msg = "Could not cleanly isolate stack trace from CI logs."
             logger.error(f"[{job_id}] {err_msg}")
+            await record_job_event(
+                job_id=job_id,
+                stage="failed",
+                message=err_msg,
+                level="error"
+            )
             await update_job_status(
                 job_id=job_id,
                 status=JobStatus.FAILED,
@@ -101,6 +131,12 @@ class PipelineOrchestrator:
         failing_line = error_context.failing_line
 
         logger.info(f"[{job_id}] Isolated crash at {failing_file}:{failing_line} ({error_context.error_type}: {error_context.error_message})")
+        await record_job_event(
+            job_id=job_id,
+            stage="extracting",
+            message=f"Isolated crash at {failing_file}:{failing_line} — {error_context.error_type}: {error_context.error_message}",
+            level="success"
+        )
 
         # 3.4 Retrieve target file source code
         source_code: Optional[str] = None
@@ -129,6 +165,12 @@ class PipelineOrchestrator:
             target_line=failing_line
         )
         focused_code_context = ast_ctx.get_focused_prompt_context()
+        await record_job_event(
+            job_id=job_id,
+            stage="extracting",
+            message=f"Extracted focused AST context around line {failing_line} for {failing_file}.",
+            level="info"
+        )
 
         # -------------------------------------------------------------
         # STAGE 4: AI Diagnosis & Patching
@@ -139,6 +181,13 @@ class PipelineOrchestrator:
             failing_file=failing_file,
             failing_line=failing_line,
             error_summary=f"{error_context.error_type}: {error_context.error_message}"
+        )
+        provider_name = settings.LLM_PROVIDER.upper()
+        await record_job_event(
+            job_id=job_id,
+            stage="diagnosing",
+            message=f"Synthesizing prompt with AST code context; querying {provider_name} for root-cause diagnosis...",
+            level="info"
         )
 
         initial_prompt = build_initial_diagnosis_prompt(
@@ -158,6 +207,12 @@ class PipelineOrchestrator:
         initial_diff = diag_result.patch_diff
 
         logger.info(f"[{job_id}] AI Diagnosis complete: '{root_cause[:80]}...'")
+        await record_job_event(
+            job_id=job_id,
+            stage="diagnosing",
+            message=f"AI Diagnosis generated ({diag_result.tokens_used} tokens). Root cause: {root_cause[:120]}...",
+            level="success"
+        )
 
         # -------------------------------------------------------------
         # STAGE 5: Sandboxed Verification (The Self-Correction Loop)
@@ -168,6 +223,12 @@ class PipelineOrchestrator:
             root_cause=root_cause,
             diff_patch=initial_diff,
             tokens_used=total_tokens
+        )
+        await record_job_event(
+            job_id=job_id,
+            stage="verifying",
+            message="Initializing isolated sandbox environment for test verification...",
+            level="info"
         )
 
         # Prepare repo files map for sandbox verification
@@ -199,6 +260,12 @@ class PipelineOrchestrator:
         if not verification.success:
             logger.warning(f"[{job_id}] Fix could not be verified in sandbox. Rejecting PR.")
             final_status = JobStatus.GUARDRAIL_REJECTED if verification.guardrail_violated else JobStatus.FAILED
+            await record_job_event(
+                job_id=job_id,
+                stage=final_status.value,
+                message=f"Pipeline stopped: {verification.error_reason or 'Failed sandbox verification'}.",
+                level="error"
+            )
             await update_job_status(
                 job_id=job_id,
                 status=final_status,
@@ -214,6 +281,13 @@ class PipelineOrchestrator:
         verified_diff = verification.verified_diff or initial_diff
         patch_outcome = apply_unified_diff(source_code, verified_diff)
         patched_code = patch_outcome.patched_code or source_code
+
+        await record_job_event(
+            job_id=job_id,
+            stage="pr_opened",
+            message=f"Verified patch in {verification.total_attempts} attempt(s). Creating branch and opening Pull Request on GitHub...",
+            level="info"
+        )
 
         pr_url, pr_number = await github_client.open_remediation_pr(
             repo_name=repo_name,
@@ -238,6 +312,13 @@ class PipelineOrchestrator:
             pull_request_number=pr_number,
             tokens_used=total_tokens,
             duration_seconds=total_duration
+        )
+
+        await record_job_event(
+            job_id=job_id,
+            stage="pr_opened",
+            message=f"Pull Request #{pr_number or ''} successfully opened on GitHub: {pr_url} (Resolved in {total_duration:.1f}s)",
+            level="success"
         )
 
         logger.info(f"[{job_id}] Successfully healed build! PR Opened: {pr_url} in {total_duration:.1f}s")

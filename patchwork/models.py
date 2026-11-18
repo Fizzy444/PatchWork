@@ -34,6 +34,7 @@ class HealingJobRecord(Base):
     commit_sha: Mapped[str] = mapped_column(String(64))
     workflow_name: Mapped[str] = mapped_column(String(128), default="CI")
     run_id: Mapped[int] = mapped_column(Integer, index=True)
+    installation_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(32), default=JobStatus.QUEUED.value)
     
     # Context & Diagnosis
@@ -58,6 +59,21 @@ class HealingJobRecord(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     attempts: Mapped[List["PatchAttemptRecord"]] = relationship("PatchAttemptRecord", back_populates="job", cascade="all, delete-orphan")
+    events: Mapped[List["JobEventRecord"]] = relationship("JobEventRecord", back_populates="job", cascade="all, delete-orphan", order_by="JobEventRecord.id")
+
+
+class JobEventRecord(Base):
+    __tablename__ = "job_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("healing_jobs.id", ondelete="CASCADE"), index=True)
+    stage: Mapped[str] = mapped_column(String(32))
+    level: Mapped[str] = mapped_column(String(16), default="info")
+    message: Mapped[str] = mapped_column(Text)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+
+    job: Mapped["HealingJobRecord"] = relationship("HealingJobRecord", back_populates="events")
 
 
 class PatchAttemptRecord(Base):
@@ -116,6 +132,17 @@ class PatchAttemptSchema(BaseModel):
     created_at: datetime
 
 
+class JobEventSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    job_id: str
+    stage: str
+    level: str
+    message: str
+    details: Optional[str] = None
+    created_at: datetime
+
+
 class JobResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: str
@@ -124,6 +151,7 @@ class JobResponse(BaseModel):
     commit_sha: str
     workflow_name: str
     run_id: int
+    installation_id: Optional[int] = None
     status: str
     failing_file: Optional[str] = None
     failing_line: Optional[int] = None
@@ -139,6 +167,7 @@ class JobResponse(BaseModel):
     duration_seconds: float
     created_at: datetime
     attempts: List[PatchAttemptSchema] = []
+    events: List[JobEventSchema] = []
 
 
 class MetricsSummary(BaseModel):

@@ -23,6 +23,7 @@ from patchwork.database import (
     get_repositories,
     get_status_counts,
     list_jobs,
+    rerun_job,
 )
 from patchwork.guardrails.flaky import FLAKY_PATTERNS
 from patchwork.models import JobStatus
@@ -216,6 +217,75 @@ async def jobs_page(
     )
 
 
+def _pipeline_stages(job) -> List[Dict[str, object]]:
+    order = ["queued", "extracting", "diagnosing", "verifying", "pr_opened"]
+    status = job.status
+    statuses = {s: "pending" for s in order}
+
+    if status == JobStatus.QUEUED.value:
+        statuses["queued"] = "active"
+    elif status == JobStatus.EXTRACTING.value:
+        statuses["queued"] = "completed"
+        statuses["extracting"] = "active"
+    elif status == JobStatus.DIAGNOSING.value:
+        statuses["queued"] = "completed"
+        statuses["extracting"] = "completed"
+        statuses["diagnosing"] = "active"
+    elif status == JobStatus.VERIFYING.value:
+        statuses["queued"] = "completed"
+        statuses["extracting"] = "completed"
+        statuses["diagnosing"] = "completed"
+        statuses["verifying"] = "active"
+    elif status == JobStatus.PR_OPENED.value:
+        for s in order:
+            statuses[s] = "completed"
+    elif status == JobStatus.FLAKY_RERUN.value:
+        statuses["queued"] = "completed"
+        statuses["extracting"] = "completed"
+        statuses["diagnosing"] = "skipped"
+        statuses["verifying"] = "skipped"
+        statuses["pr_opened"] = "completed"
+    elif status == JobStatus.GUARDRAIL_REJECTED.value:
+        if (job.guardrail_violation or "") == "INFINITE_LOOP_PREVENTION":
+            statuses["queued"] = "failed"
+        else:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "completed"
+            statuses["diagnosing"] = "completed"
+            statuses["verifying"] = "failed"
+    elif status == JobStatus.FAILED.value:
+        if not job.failing_file:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "failed"
+        elif not job.root_cause:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "completed"
+            statuses["diagnosing"] = "failed"
+        else:
+            statuses["queued"] = "completed"
+            statuses["extracting"] = "completed"
+            statuses["diagnosing"] = "completed"
+            statuses["verifying"] = "failed"
+
+    labels = {
+        "queued": ("Ingestion", "Webhook & loop guard"),
+        "extracting": ("Log Analysis", "CI logs & AST parsed"),
+        "diagnosing": ("AI Diagnosis", "Root cause & diff"),
+        "verifying": ("Sandbox Verify", "Test execution loop"),
+        "pr_opened": ("PR Resolution", "Remediation opened"),
+    }
+
+    return [
+        {
+            "id": s,
+            "title": labels[s][0],
+            "description": labels[s][1],
+            "state": statuses[s],
+        }
+        for s in order
+    ]
+
+
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
 async def job_detail_page(request: Request, job_id: str):
     """Inspect one remediation job: diagnosis, diff, and sandbox attempts."""
@@ -231,7 +301,15 @@ async def job_detail_page(request: Request, job_id: str):
         job=job,
         meta=meta,
         guardrail_checks=_guardrail_checks(job),
+        pipeline_stages=_pipeline_stages(job),
     )
+
+
+@router.post("/jobs/{job_id}/rerun", response_class=RedirectResponse)
+async def rerun_job_page(request: Request, job_id: str):
+    """Trigger a re-run of a remediation job from the HTML form."""
+    await rerun_job(job_id)
+    return RedirectResponse(f"/jobs/{job_id}", status_code=303)
 
 
 @router.get("/guardrails", response_class=HTMLResponse)

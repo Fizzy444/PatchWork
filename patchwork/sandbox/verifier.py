@@ -16,7 +16,7 @@ from patchwork.brain.prompts import build_reflection_prompt
 from patchwork.brain.llm import llm_client
 from patchwork.sandbox.docker_manager import DockerSandboxManager
 from patchwork.sandbox.local_runner import run_local_test
-from patchwork.database import record_patch_attempt
+from patchwork.database import record_patch_attempt, record_job_event
 
 logger = logging.getLogger("patchwork.sandbox.verifier")
 
@@ -63,11 +63,23 @@ class SandboxVerifier:
 
             for attempt in range(1, max_attempts + 1):
                 logger.info(f"[{job_id}] Starting Sandbox Verification - Attempt {attempt}/{max_attempts}")
+                await record_job_event(
+                    job_id=job_id,
+                    stage="verifying",
+                    message=f"Sandbox Attempt {attempt}/{max_attempts}: Validating guardrails and applying patch to {current_target_file}...",
+                    level="info"
+                )
 
                 # 2. Check Guardrails for proposed patch
                 guardrail_res = validate_proposed_patch(current_target_file, current_diff)
                 if not guardrail_res.passed:
                     logger.warning(f"[{job_id}] Patch rejected by guardrail: {guardrail_res.reason}")
+                    await record_job_event(
+                        job_id=job_id,
+                        stage="guardrail_rejected",
+                        message=f"Attempt {attempt}: Patch violated guardrail ({guardrail_res.reason})",
+                        level="error"
+                    )
                     await record_patch_attempt(
                         job_id=job_id,
                         attempt_number=attempt,
@@ -137,6 +149,12 @@ class SandboxVerifier:
                 # 6. Branch on test outcome
                 if patch_res.success and tests_passed:
                     logger.info(f"[{job_id}] Fix VERIFIED successfully on attempt {attempt}!")
+                    await record_job_event(
+                        job_id=job_id,
+                        stage="verifying",
+                        message=f"Sandbox Attempt {attempt}/{max_attempts}: ALL TESTS PASSED! Fix verified.",
+                        level="success"
+                    )
                     return VerificationResult(
                         success=True,
                         verified_diff=current_diff,
@@ -148,6 +166,12 @@ class SandboxVerifier:
                 # Tests failed: if we have attempts remaining, feed back output to LLM for reflection
                 if attempt < max_attempts:
                     logger.info(f"[{job_id}] Attempt {attempt} failed. Triggering Self-Correction reflection loop.")
+                    await record_job_event(
+                        job_id=job_id,
+                        stage="verifying",
+                        message=f"Sandbox Attempt {attempt}/{max_attempts}: Tests failed. Feeding test feedback to AI for reflection...",
+                        level="warning"
+                    )
                     reflection_prompt = build_reflection_prompt(
                         previous_patch=current_diff,
                         container_test_error=last_test_output[:2000],
@@ -162,6 +186,12 @@ class SandboxVerifier:
 
             # All attempts exhausted
             logger.warning(f"[{job_id}] All {max_attempts} attempts failed sandbox verification.")
+            await record_job_event(
+                job_id=job_id,
+                stage="verifying",
+                message=f"Sandbox verification failed after {max_attempts} attempts.",
+                level="error"
+            )
             return VerificationResult(
                 success=False,
                 total_attempts=max_attempts,

@@ -36,7 +36,7 @@
       <span>Intercepted</span>
       {{ octicon("alert-fill", 16, "stat-icon") }}
     </div>
-    <div class="stat-value">{{ metrics.total_intercepted|number }}</div>
+    <div class="stat-value" data-stat-value="intercepted">{{ metrics.total_intercepted|number }}</div>
     <div class="stat-caption">Failed runs received</div>
   </a>
 
@@ -45,7 +45,7 @@
       <span>PR opened</span>
       {{ octicon("git-pull-request", 16, "stat-icon") }}
     </div>
-    <div class="stat-value">{{ metrics.total_healed|number }}</div>
+    <div class="stat-value" data-stat-value="healed">{{ metrics.total_healed|number }}</div>
     <div class="stat-caption">Verified fixes</div>
   </a>
 
@@ -54,7 +54,7 @@
       <span>Success rate</span>
       {{ octicon("check-circle-fill", 16, "stat-icon") }}
     </div>
-    <div class="stat-value">{{ metrics.success_rate_percentage }}%</div>
+    <div class="stat-value" data-stat-value="success_rate">{{ metrics.success_rate_percentage }}%</div>
     <div class="stat-caption">PRs opened ÷ runs received</div>
   </a>
 
@@ -76,12 +76,12 @@
     </div>
 
     {% if recent_jobs %}
-    <ul class="job-list">
+    <ul class="job-list" id="recent-jobs-list">
       {% for job in recent_jobs %}
       {% set meta = status_meta(job.status) %}
-      <li>
+      <li data-recent-job-id="{{ job.id }}">
         <a class="job-row" href="/jobs/{{ job.id }}">
-          {{ status_icon(job.status, 16) }}
+          <span data-status-icon>{{ status_icon(job.status, 16) }}</span>
           <div class="job-row-main">
             <div class="job-row-title">
               <strong>{{ job.repo_name }}</strong>
@@ -93,7 +93,7 @@
               {% if job.attempts_count %} · {{ job.attempts_count }} attempt{{ "s" if job.attempts_count != 1 }}{% endif %}
             </div>
           </div>
-          {{ status_badge(job.status) }}
+          <span data-status-badge>{{ status_badge(job.status) }}</span>
         </a>
       </li>
       {% endfor %}

@@ -20,7 +20,7 @@
   {% for tab in tabs %}
   <a class="UnderlineNav-item{% if tab.key == selected_status.key %} selected{% endif %}" href="{{ tab.url }}">
     {{ tab.label }}
-    <span class="Counter">{{ tab.count }}</span>
+    <span class="Counter" data-tab-counter="{{ tab.key }}">{{ tab.count }}</span>
   </a>
   {% endfor %}
 </nav>
@@ -62,7 +62,7 @@
 
   {% if jobs %}
   <div class="table-wrap">
-    <table class="table">
+    <table class="table" id="jobs-table">
       <thead>
         <tr>
           <th scope="col">Status</th>
@@ -73,12 +73,13 @@
           <th scope="col">Attempts</th>
           <th scope="col">Duration</th>
           <th scope="col">Received</th>
+          <th scope="col" class="text-right">Action</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="jobs-table-body">
         {% for job in jobs %}
-        <tr>
-          <td>{{ status_badge(job.status) }}</td>
+        <tr data-job-row="{{ job.id }}" data-job-status="{{ job.status }}">
+          <td data-field="status">{{ status_badge(job.status) }}</td>
           <td>
             <a class="table-primaryLink" href="/jobs/{{ job.id }}">{{ job.repo_name }}</a>
             <div class="table-secondary">{{ job.workflow_name }}</div>
@@ -93,21 +94,29 @@
             </a>
             <div class="table-secondary">{{ job.commit_sha|short_sha }}</div>
           </td>
-          <td>
+          <td data-field="failure">
             {% if job.failing_file %}
             <span class="table-file">{{ job.failing_file }}{% if job.failing_line %}:{{ job.failing_line }}{% endif %}</span>
             {% else %}
             <span class="text-muted">{{ job.error_summary or "Not extracted yet" }}</span>
             {% endif %}
           </td>
-          <td>
+          <td data-field="attempts">
             <span class="text-muted">{{ job.attempts_count }}/{{ settings.MAX_RETRY_ATTEMPTS }}</span>
           </td>
-          <td>
+          <td data-field="duration">
             <span class="text-muted">{{ job.duration_seconds|duration }}</span>
           </td>
           <td>
             <span class="text-muted" title="{{ job.created_at }}">{{ job.created_at|relative_time }}</span>
+          </td>
+          <td class="text-right table-actions">
+            <form method="post" action="/jobs/{{ job.id }}/rerun" class="d-inline" data-rerun-row-form>
+              <button type="submit" class="btn btn-sm btn-invisible p-1" title="Re-run remediation job" data-rerun-row="{{ job.id }}"
+                {% if job.status in ('queued', 'extracting', 'diagnosing', 'verifying') %}disabled{% endif %}>
+                {{ octicon("sync", 14) }}
+              </button>
+            </form>
           </td>
         </tr>
         {% endfor %}
