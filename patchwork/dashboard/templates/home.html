@@ -29,16 +29,16 @@
 
     <div class="home-actions">
       {% if current_user %}
-      <a class="btn btn-primary" href="/overview">Go to Dashboard</a>
-      <a class="btn" href="/jobs">View Jobs</a>
-      <a class="btn" href="/guide">{{ octicon("book", 14) }} Setup Guide</a>
+      <a class="btn btn-primary" href="/overview"><span>Go to Dashboard</span></a>
+      <a class="btn" href="/jobs">{{ octicon("checklist", 16) }}<span>View Jobs</span></a>
+      <a class="btn" href="/guide">{{ octicon("book", 16) }}<span>Setup Guide</span></a>
       {% elif registration_open|default(true) %}
-      <a class="btn btn-primary" href="/register">Get started</a>
-      <a class="btn" href="/login">Sign in</a>
-      <a class="btn" href="/guide">{{ octicon("book", 14) }} Documentation</a>
+      <a class="btn btn-primary" href="/register"><span>Get started</span></a>
+      <a class="btn" href="/login"><span>Sign in</span></a>
+      <a class="btn" href="/guide">{{ octicon("book", 16) }}<span>Documentation</span></a>
       {% else %}
-      <a class="btn btn-primary" href="/login">Sign in</a>
-      <a class="btn" href="/guide">{{ octicon("book", 14) }} Documentation</a>
+      <a class="btn btn-primary" href="/login"><span>Sign in</span></a>
+      <a class="btn" href="/guide">{{ octicon("book", 16) }}<span>Documentation</span></a>
       {% endif %}
     </div>
   </div>
@@ -205,14 +205,20 @@
 </section>
 
 <!-- Call to action block -->
-<section class="Box p-4 text-center bg-canvas-subtle">
-  <h3 class="h4 mb-2">Ready to connect your repositories?</h3>
-  <p class="text-muted mb-3 mx-auto" style="max-width: 580px;">
+<section class="home-cta">
+  <h3>Ready to connect your repositories?</h3>
+  <p>
     Follow our step-by-step setup guide with full diagrams for GitHub Apps, webhook configuration, Smee tunneling, and test verification.
   </p>
-  <div class="d-flex justify-content-center gap-2">
-    <a class="btn btn-primary" href="/guide">{{ octicon("book", 14) }} Read Setup Guide</a>
-    <a class="btn" href="/settings">{{ octicon("gear", 14) }} Open Settings</a>
+  <div class="home-cta-actions">
+    <a class="btn btn-primary" href="/guide">
+      {{ octicon("book", 16) }}
+      <span>Read Setup Guide</span>
+    </a>
+    <a class="btn" href="/settings">
+      {{ octicon("gear", 16) }}
+      <span>Open Settings</span>
+    </a>
   </div>
 </section>
 {% endblock %}
